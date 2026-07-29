@@ -169,12 +169,13 @@ function scoreRelevance(post) {
   // 3) 是否来自群组
   const inGroup = /facebook\.com\/groups\//i.test(post.link || '');
 
-  // 4) 打分
+  // 4) 打分（v4.1：群组无 ASIN 直接降权，避免“对不上的群组帖”混入主结果）
   let relevance;
   if (asinMatch === 'exact') relevance = 3;        // 金标准：链接 ASIN 就是目标
-  else if (kwHit) relevance = 2;                   // 命中精确产品词，高度疑似本品
-  else if (inGroup) relevance = 1;                 // 群组帖但无产品词/无 ASIN → 疑似噪音
-  else relevance = 1;
+  else if (asinMatch === 'other') relevance = 2;   // 有 ASIN 但非目标：带 other 警示，报告单独分流
+  else if (inGroup) relevance = 1;                 // 无 ASIN 的群组帖：无法确认对应目标，降为噪音
+  else if (kwHit) relevance = 2;                   // 非群组 + 命中精确产品词：疑似本品（红人/评测）
+  else relevance = 1;                              // 其余：噪音
 
   post.asin = post.asin || null;
   post.asin_match = asinMatch;
@@ -183,7 +184,7 @@ function scoreRelevance(post) {
   post.relevance = relevance;
   post.relevance_label = {
     3: '高 · ASIN精确命中',
-    2: '中 · 精确产品词命中',
+    2: '中 · 疑似本品(含其他ASIN/产品词命中)',
     1: '低 · 疑似群组/噪音'
   }[relevance];
 
