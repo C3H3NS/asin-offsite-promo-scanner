@@ -118,7 +118,7 @@ FB DOM 经常变动，若某次采集为空，先看 `offsite-output/facebook_<�
 | 场景 | 你可以这样问 |
 |------|------|
 | 查单个 ASIN 的全渠道站外推广 | `查一下 ASIN B0H6Q7VFK9 的站外推广，给我一份报告` |
-| 指定站点 | `帮我查 B0H6Q7VFK9 在英国站（amazon.co.uk）的站外推广` |
+| 指定站点 | `帮我查 B0H6Q7VFK9 在英国站（amazon.com.uk）的站外推广` |
 | 只关心折扣码 | `B0H6Q7VFK9 有没有折扣码或促销链接？把折扣力度找出来` |
 | Facebook 实时采集 | `先帮我启动调试 Chrome 并登录 Facebook，再用本机登录态查 Boytond 品牌的站外推广` |
 | 多 ASIN 批量 | `这 3 个 ASIN 一起查：B0H6Q7VFK9、B0XXXXXXX、B0YYYYYYY，合并成一份报告` |
