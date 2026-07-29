@@ -34,10 +34,10 @@ bash start_chrome_debug.sh
 ### 第 2 步：跑采集脚本
 另开一个终端：
 ```powershell
-# 推荐：品牌 + 精确产品词 + 目标 ASIN（脚本会校验每条链接的 ASIN）
+# 推荐：只传 ASIN，脚本自动抓亚马逊标题提取精确产品词（如 AI Translation Earbuds Real Time）
+node facebook_search.js "Boytond" --asin=B0H6Q7VFK9
+# 也支持手动指定产品词覆盖自动提取：
 node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
-# 仅品牌降级模式（不推荐，会召回同品牌其他型号的无关帖子）：
-node facebook_search.js "Boytond"
 ```
 
 > ⚠️ **务必传精确产品词和目标 ASIN**。只传品牌会从根上召回同品牌所有型号（不同 ASIN）的帖子，

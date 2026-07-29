@@ -68,9 +68,8 @@ Facebook 的公开搜索对**匿名/干净浏览器基本失效**，必须用你
 另开一个终端：
 ```powershell
 cd scripts
-node facebook_search.js "Boytond"           # 品牌名，推荐
-node facebook_search.js "Boytond" "earbuds" # 品牌 + 品类
-node facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
+node facebook_search.js "Boytond" --asin=B0H6Q7VFK9                              # 推荐：自动抓亚马逊标题提取精确产品词
+node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    # 也支持手动指定产品词覆盖
 ```
 产物：`../offsite-output/facebook_<品牌>.json` + `.png`。脚本三级容错，连不上调试 Chrome 会打印清晰指引后优雅退出，不会崩溃。
 

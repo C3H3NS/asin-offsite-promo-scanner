@@ -70,11 +70,9 @@ const DEBUG_PORT = process.env.CHROME_DEBUG_PORT || '9222';
 const OUT_DIR = path.resolve(__dirname, '..', 'offsite-output');
 const safe = BRAND.replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
 
-// 产品词拆 token（用于相关性判断；过滤掉过短词与通用停用词）
+// 产品词拆 token（用于相关性判断；运行时根据最终产品词填充，见 scan()）
 const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'your', 'this', 'that', 'earbuds', 'headphones', 'wireless', 'bluetooth']);
-const PRODUCT_TOKENS = CATEGORY
-  ? CATEGORY.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w))
-  : [];
+let PRODUCT_TOKENS = [];
 
 // ── 多查询变体生成（v4：精确产品词，不自动拼泛品类） ──
 function buildQueries(brand, productKeyword, targetAsin) {
@@ -360,10 +358,29 @@ async function scan(browser, launchedByScript) {
     console.log('[!] 首页预热失败(继续尝试搜索):', e.message.split('\n')[0]);
   }
 
-  const queries = buildQueries(BRAND, CATEGORY, TARGET_ASIN);
+  // v4.2：若提供了 ASIN，自动抓亚马逊标题提取精确产品词（含 Real Time 等），优先于手敲词
+  let productKeyword = CATEGORY;
+  if (TARGET_ASIN) {
+    try {
+      const title = await fetchAmazonTitle(browser, TARGET_ASIN);
+      const kw = extractProductKeyword(title, BRAND);
+      if (kw) {
+        productKeyword = kw;
+        console.log('[✓] 从亚马逊标题自动提取精确产品词: "' + kw + '"');
+      } else {
+        console.log('[!] 未从标题提取出产品词，沿用: "' + (CATEGORY || BRAND) + '"');
+      }
+    } catch (e) {
+      console.log('[!] 抓亚马逊标题失败，沿用手敲/品牌词: ' + e.message.split('\n')[0]);
+    }
+  }
+  // 填充相关性判断用的 token（基于最终产品词）
+  PRODUCT_TOKENS = productKeyword.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
+
+  const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN);
   console.log(`\n${'═'.repeat(50)}`);
-  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4`);
-  console.log(`  品牌: ${BRAND} | 精确产品词: ${CATEGORY || '(无，降级为品牌泛搜)'}`);
+  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.2`);
+  console.log(`  品牌: ${BRAND} | 精确产品词: ${productKeyword || '(无，降级为品牌泛搜)'}`);
   console.log(`  目标 ASIN: ${TARGET_ASIN || '(未提供，仅按产品词打分)'}`);
   console.log(`  查询变体 (${queries.length}): ${queries.join(', ')}`);
   console.log(`${'═'.repeat(50)}\n`);
@@ -404,7 +421,7 @@ async function scan(browser, launchedByScript) {
 
   const result = {
     brand: BRAND,
-    category: CATEGORY || '(auto)',
+    category: productKeyword || '(auto)',
     target_asin: TARGET_ASIN || null,
     queries_used: queries,
     captured_at: new Date().toISOString(),
@@ -447,6 +464,42 @@ async function scan(browser, launchedByScript) {
   } else {
     console.log('[+] 连接的是你已有的 Chrome，脚本退出不关闭它。');
   }
+}
+
+// ── v4.2：自动从亚马逊标题提取精确产品词 ──
+async function fetchAmazonTitle(browser, asin) {
+  const ctx = browser.contexts()[0] || await browser.newContext();
+  const p = await ctx.newPage();
+  try {
+    await p.goto('https://www.amazon.com/dp/' + asin, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await p.waitForSelector('#productTitle', { timeout: 10000 }).catch(() => {});
+    const title = await p.$eval('#productTitle', el => el.innerText).catch(() => null)
+               || await p.title().catch(() => null);
+    return title ? title.trim() : null;
+  } finally {
+    await p.close().catch(() => {});
+  }
+}
+
+// 从标题提取核心产品短语：去品牌、去规格数字、去同义噪声，保留如 "AI Translation Earbuds Real Time"
+function extractProductKeyword(title, brand) {
+  if (!title) return '';
+  let t = title;
+  if (brand && t.toLowerCase().startsWith(brand.toLowerCase())) t = t.slice(brand.length).trim();
+  const words = t.split(/\s+/).map(w => w.replace(/[^\w\s]/g, '').trim()).filter(Boolean);
+  const idx = words.findIndex(w => /translat/i.test(w) || /earbud/i.test(w));
+  if (idx === -1) return '';
+  let start = idx;
+  for (let i = Math.max(0, idx - 3); i <= idx; i++) {
+    if (/^ai$/i.test(words[i])) { start = i; break; }
+  }
+  let end = idx;
+  const ebIdx = words.findIndex((w, i) => i >= idx && /earbud/i.test(w));
+  if (ebIdx >= 0) end = ebIdx;
+  if (words[end + 1] && /^real$/i.test(words[end + 1]) && words[end + 2] && /^time$/i.test(words[end + 2])) {
+    end = end + 2;
+  }
+  return words.slice(start, end + 1).join(' ').trim();
 }
 
 // ── 入口：三级容错 ──

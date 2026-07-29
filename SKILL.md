@@ -68,11 +68,10 @@ Facebook 公开搜索对匿名基本失效，必须用**你本机已登录 Chrom
 - **Windows**：运行 `scripts/start_chrome_debug.bat` → 弹窗里登录 Facebook → 保持窗口开着。
 - **Mac/Linux**：运行 `bash scripts/start_chrome_debug.sh` → 登录 Facebook → 保持窗口开着。
 
-然后跑采集（**务必传精确产品词 + 目标 ASIN**，脚本据此校验每条链接的 ASIN）：
+然后跑采集（**v4.2 起只需传 `--asin`，脚本会自动抓亚马逊标题、提取精确产品词**（如 `AI Translation Earbuds Real Time`）构造查询，无需手敲产品词；手敲产品词仅作覆盖兜底）：
 ```powershell
-node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
-# 仅品牌降级模式（不推荐，噪音大）：
-node scripts/facebook_search.js "Boytond"
+node scripts/facebook_search.js "Boytond" --asin=B0H6Q7VFK9                              # 推荐：自动提取精确产品词
+node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    # 也可手动指定产品词覆盖
 ```
 脚本三级容错：①先连已在 9222 的调试 Chrome → ②连不上则复制 profile 自启一个（已加 `--remote-allow-origins=*` 与 `--proxy-bypass-list`）→ ③仍不行就打印清晰指引后优雅退出，绝不 FATAL 崩溃。
 产物：`offsite-output/facebook_<品牌>.json` + `.png`。详见 `scripts/README.md`。
@@ -120,9 +119,9 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
 
 - **② 实时脚本（增强，默认尝试，且必须提示用户登录）**：本机已登录 Chrome 的会话能拿到匿名搜不到的实时结果，**流程跑到这一步时必须主动提示用户去登录 Facebook**——不要默认静默降级到索引就当查完了。
   1. 先探测本机 9222 端口是否已有带登录态的调试 Chrome（`facebook_search.js` 会自动连）。
-  2. 若连上 → 直接跑（**务必带上精确产品词和目标 ASIN**，脚本会据此校验每条链接的 ASIN）：
+  2. 若连上 → 直接跑（**只需传 `--asin`，脚本自动抓亚马逊标题提取精确产品词**并校验每条链接的 ASIN）：
      ```powershell
-     node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
+     node scripts/facebook_search.js "Boytond" --asin=B0H6Q7VFK9
      ```
      脚本会产出 `facebook_<品牌>.json`，每条帖子带 `asin_match`（exact / other / unknown）、`relevance`（高/中/低）、`in_group` 等字段。
   3. 若没连上 → **必须暂停并提示用户**：

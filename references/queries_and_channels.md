@@ -39,7 +39,7 @@
 - `site:facebook.com "<品牌> <精确产品词>" "discount"`
 
 > ⚠️ 必须带**精确产品词**，不要只写品牌——只写品牌会召回同品牌其他型号（不同 ASIN）的无关帖。
-> 实时脚本（`facebook_search.js`）需传 `--asin=<目标ASIN>`，脚本会比对每条链接的 ASIN：
+> 实时脚本（`facebook_search.js`）需传 `--asin=<目标ASIN>`；**v4.2 起脚本会自动抓亚马逊标题提取精确产品词**（如 `AI Translation Earbuds Real Time`）构造查询，并比对每条链接的 ASIN：
 > - `asin_match=exact` → 确为本产品，进主结果；
 > - `asin_match=other` → 同品牌其他型号，单独分流到"其他 ASIN"附录，勿混淆；
 > - 无 ASIN 但命中精确产品词 → 可参考，标注"未验证链接"。
