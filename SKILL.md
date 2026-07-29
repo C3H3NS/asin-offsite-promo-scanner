@@ -34,6 +34,8 @@ ASIN 在站外几乎搜不到（站外不流通 ASIN），**品牌词 + 产品�
 - 追加：**Pinterest、Instagram**
 - 可选扩展（Slickdeals / Reddit / YouTube / TikTok 等）见 references/queries_and_channels.md
 
+> **⚠️ Facebook 是默认必查渠道，不等用户显式要求。** 无论用户有没有说"查 Facebook"，都必须执行 Step 4。登录态只是增强项，不是前提——没登录态就走 Google 索引，绝不能跳过。
+
 ---
 
 ## 安装（一次性）
@@ -104,14 +106,23 @@ node scripts/facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
 5. `<品牌> giveaway` / `<品牌> influencer`
 采集：URL、站点类型（博客/deal/论坛/视频）、是否含折扣码、摘要。
 
-### Step 4 Facebook（自动 + 实时脚本，混合）
-- **自动（无需登录，Google 索引抓取）**：
+### Step 4 Facebook（默认必查，不可省略）
+Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook"，都必须查**，不得因用户没提就跳过。分两层：
+
+- **① 自动索引（无条件执行，无需登录）——底线，任何情况先跑**：
   - `site:facebook.com "<品牌> <产品核心词>"`
   - `site:facebook.com "<品牌>" "discount"`
-  采集被搜索引擎收录的公开帖子 / 主页 / 小组帖。
-- **实时（本机登录态脚本）**：按上方「本地 Chrome 登录态」启动后，运行 `facebook_search.js`。
-  脚本会产出 `facebook_<品牌>.json`（多查询聚合 + 解析出的 Amazon 链接/折扣码）。把关键命中并入报告与 CSV。
-- **手动（推广员登录态）**：Facebook 搜索对匿名失效，给一份 SOP + 记录模板（见 references/facebook_manual_sop.md），让推广员把链接/截图/折扣码贴回。产出里留「待推广员补充」占位。
+  采集被搜索引擎收录的公开帖子 / 主页 / 小组帖里的推广痕迹（红人主页、折扣帖、小组讨论）。
+
+- **② 实时脚本（增强，默认尝试，失败则降级）**：本机已登录 Chrome 的会话能拿到匿名搜不到的实时结果，应尽量用：
+  1. 先探测本机 9222 端口是否已有带登录态的调试 Chrome（`facebook_search.js` 会自动连）。
+  2. 若连上 → 直接跑 `node scripts/facebook_search.js "<品牌>"`，结果并入报告与 CSV。
+  3. 若没连上 → **主动提示用户**："Facebook 实时采集需要本机登录态，请运行 `scripts/start_chrome_debug` 并登录 Facebook 后保持窗口开着，我会自动继续"。用户就绪后执行脚本。
+  4. 若用户暂时无法提供登录态 → **降级**为仅用 ① 的索引结果，并在产出里标注"Facebook 实时态未采集，仅公开索引，覆盖度可能不全"。**绝不能完全跳过 Facebook。**
+
+- **③ 手动（兜底）**：若自动 + 脚本都拿不到，给 references/facebook_manual_sop.md 让推广员补，产出留「待推广员补充」占位。
+
+**关键原则**：Facebook 永远是默认动作；登录态是"增强"不是"前提"。没登录态就走索引，不要等用户说"查 Facebook"才动。
 
 ### Step 5 Pinterest / Instagram
 - Pinterest：`site:pinterest.com "<品牌> <产品核心词>"` 或搜品牌词，看有无种草图钉、是否带外链。

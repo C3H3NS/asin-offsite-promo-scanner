@@ -42,8 +42,8 @@ asin-offsite-promo-scanner/
    - 用户级：`~/.claude/skills/asin-offsite-promo-scanner/`
    - 项目级：`<项目>/.claude/skills/asin-offsite-promo-scanner/`
 2. 进 `scripts/` 跑 `npm install`（或 `bash setup.sh` / `setup.bat`）。
-3. 对 Claude Code 说："查一下 ASIN B0H6Q7VFK9 的站外推广"，即会自动触发。
-4. （仅 FB 实时采集需要）按第三节让本机 Chrome 带调试端口并登录 Facebook。
+3. 对 Claude Code 说："查一下 ASIN B0H6Q7VFK9 的站外推广"，即会自动触发（Facebook 默认也会查，无需单独要求）。
+4. （FB 实时采集增强项需要）按第三节让本机 Chrome 带调试端口并登录 Facebook；不登录也能跑（走 Google 索引，覆盖度略低）。
 
 > 前置依赖：Node.js ≥ 18、本机已装 Google Chrome、可联网。
 
