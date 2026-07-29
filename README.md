@@ -128,3 +128,24 @@ FB DOM 经常变动，若某次采集为空，先看 `offsite-output/facebook_<�
 提示：
 - 直接甩 ASIN 即可，品牌名/产品词技能会从亚马逊商品页自己解析，不用你手动提供。
 - 想跑 Facebook 实时采集：先照第三节启动调试 Chrome 并登录，再提问；不登录也能跑（走 Google `site:facebook.com` 索引，覆盖度略低）。
+
+---
+
+## 八、如何更新（已安装的用户同步最新版）
+
+本仓库是技能的唯一源头。你（或同事）本地 `~/.claude/skills/` 或 `~/.workbuddy/skills/` 下的是它的 clone 副本。技能改完并推到 GitHub 后，本地副本同步只需 `git pull`：
+
+- **Claude Code 用户**：在技能目录执行
+  ```bash
+  cd ~/.claude/skills/asin-offsite-promo-scanner
+  git -c credential.helper= pull --ff-only
+  ```
+  Windows 也可直接双击目录里的 `update.bat` 一键更新。
+- **WorkBuddy 用户**：在技能目录执行
+  ```bash
+  cd ~/.workbuddy/skills/asin-offsite-promo-scanner
+  git -c credential.helper= pull --ff-only
+  ```
+  Mac/Linux 可运行 `bash update.sh`。
+
+> 仅当 `scripts/package.json` 有改动时才需额外 `cd scripts && npm install`；改 SKILL.md / 查询词 / README 只需 pull 即可生效（Claude Code / WorkBuddy 重新加载技能后生效，建议重启会话）。
