@@ -1,0 +1,18 @@
+# 依赖（用户自行 npm install）
+scripts/node_modules/
+scripts/package-lock.json
+
+# 运行产物（含个人 Facebook 数据，切勿提交）
+offsite-output/
+*.png
+# 注意：不要忽略 scripts/package.json（用 ! 放行）
+!scripts/package.json
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.log
+
+# Chrome 调试残留
+SingletonLock
+User Data_fbscan/

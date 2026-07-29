@@ -1,0 +1,14 @@
+{
+  "name": "facebook-offsite-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "用本机已登录的 Google Chrome 搜索 Facebook 站外推广痕迹（ASIN 站外侦察技能配套脚本）",
+  "scripts": {
+    "search": "node facebook_search.js",
+    "setup": "npm install",
+    "start-chrome": "node -e \"console.log('请改用 start_chrome_debug.bat / .sh 启动调试 Chrome')\""
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
