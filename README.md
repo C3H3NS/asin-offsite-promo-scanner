@@ -107,3 +107,24 @@ node facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
 ## 六、贡献 / 反馈
 FB DOM 经常变动，若某次采集为空，先看 `offsite-output/facebook_<品牌>.png` 截图，再人工补；
 选择器如需更新，改 `scripts/facebook_search.js` 的 `extractFromNodes` / `searchAndCollect` 即可。
+
+---
+
+## 七、怎么向 Claude Code 提问（使用示例）
+
+技能装好后，对 Claude Code 用自然语言说就行（它会根据 SKILL.md 的触发词自动加载本技能）；
+也可以显式输入 `/asin-offsite-promo-scanner` 调用。下面是你和同事平时最常用的一些问法：
+
+| 场景 | 你可以这样问 |
+|------|------|
+| 查单个 ASIN 的全渠道站外推广 | `查一下 ASIN B0H6Q7VFK9 的站外推广，给我一份报告` |
+| 指定站点 | `帮我查 B0H6Q7VFK9 在英国站（amazon.co.uk）的站外推广` |
+| 只关心折扣码 | `B0H6Q7VFK9 有没有折扣码或促销链接？把折扣力度找出来` |
+| Facebook 实时采集 | `先帮我启动调试 Chrome 并登录 Facebook，再用本机登录态查 Boytond 品牌的站外推广` |
+| 多 ASIN 批量 | `这 3 个 ASIN 一起查：B0H6Q7VFK9、B0XXXXXXX、B0YYYYYYY，合并成一份报告` |
+| 竞品对比 | `查 B0H6Q7VFK9 的站外推广，顺便看下同品类竞品是怎么推起来的` |
+| 指定输出位置 | `查 B0H6Q7VFK9 的站外推广，报告放到 D:\reports\ 目录` |
+
+提示：
+- 直接甩 ASIN 即可，品牌名/产品词技能会从亚马逊商品页自己解析，不用你手动提供。
+- 想跑 Facebook 实时采集：先照第三节启动调试 Chrome 并登录，再提问；不登录也能跑（走 Google `site:facebook.com` 索引，覆盖度略低）。

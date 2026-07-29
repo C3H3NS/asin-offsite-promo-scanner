@@ -49,7 +49,14 @@ FB 脚本依赖：进入 `scripts/` 执行 `npm install`（或 `setup.bat` / `se
 2. 进入 `scripts/` 执行 `npm install`（或 `setup.sh` / `setup.bat`）。
 3. （仅 FB 实时采集需要）让本机 Chrome 带调试端口并登录 Facebook——见下方「本地 Chrome 登录态」。
 
-> 装好后，对 Claude Code 说"查一下 ASIN B0H6Q7VFK9 的站外推广"即可自动触发本技能。
+> **装好后怎么提问（同事直接照抄即可）**：
+> - 最常用：`查一下 ASIN B0H6Q7VFK9 的站外推广，给我一份报告`
+> - 指定站点：`帮我查 B0H6Q7VFK9 在英国站（amazon.co.uk）的站外推广`
+> - 只查折扣：`B0H6Q7VFK9 有没有折扣码？把折扣力度找出来`
+> - Facebook 实时：`先帮我启动调试 Chrome 并登录 Facebook，再用本机登录态查 Boytond 品牌的站外推广`
+> - 多 ASIN：`这 3 个 ASIN 一起查：B0H6Q7VFK9、B0XXXXXXX、B0YYYYYYY，合并成一份报告`
+> - 也可显式输入 `/asin-offsite-promo-scanner` 调用本技能。
+> 直接甩 ASIN 即可，品牌/产品名技能会自己从亚马逊商品页解析，不用你手动提供。
 
 ---
 
