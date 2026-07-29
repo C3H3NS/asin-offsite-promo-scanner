@@ -68,11 +68,11 @@ Facebook 公开搜索对匿名基本失效，必须用**你本机已登录 Chrom
 - **Windows**：运行 `scripts/start_chrome_debug.bat` → 弹窗里登录 Facebook → 保持窗口开着。
 - **Mac/Linux**：运行 `bash scripts/start_chrome_debug.sh` → 登录 Facebook → 保持窗口开着。
 
-然后跑采集：
+然后跑采集（**务必传精确产品词 + 目标 ASIN**，脚本据此校验每条链接的 ASIN）：
 ```powershell
-node scripts/facebook_search.js "Boytond"          # 品牌名，推荐
-node scripts/facebook_search.js "Boytond" "earbuds" # 品牌 + 品类
-node scripts/facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
+node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
+# 仅品牌降级模式（不推荐，噪音大）：
+node scripts/facebook_search.js "Boytond"
 ```
 脚本三级容错：①先连已在 9222 的调试 Chrome → ②连不上则复制 profile 自启一个（已加 `--remote-allow-origins=*` 与 `--proxy-bypass-list`）→ ③仍不行就打印清晰指引后优雅退出，绝不 FATAL 崩溃。
 产物：`offsite-output/facebook_<品牌>.json` + `.png`。详见 `scripts/README.md`。
@@ -88,9 +88,12 @@ node scripts/facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
 - 提取：标题原文、品牌（Brand 字段或标题首词）、价格、是否有 Coupon、是否有 Subscribe & Save、核心卖点词、主图。
 - **推导搜索词（最关键一步）**，以 Boytond 为例：
   - 品牌词：`Boytond`
-  - 产品核心词：`AI Translation Earbuds` / `AI Translation Earbuds Real Time`
+  - **精确产品核心词（务必取「准确型号描述」，不要只取品牌或泛品类）**：`AI Translation Earbuds` / `AI Translation Earbuds Real Time`
+    - ⚠️ 这是 Facebook 查准的关键。只拿品牌 `Boytond` 去搜会召回同品牌**所有型号**（不同 ASIN）的帖子，造成"点进去 ASIN 对不上"的噪音。必须带上精确产品词。
   - 组合词：`Boytond AI Translation Earbuds`
-  - 推广意图组合：`Boytond coupon` / `Boytond discount code` / `Boytond review` / `Boytond giveaway` / `Boytond affiliate` / `Boytond influencer`
+  - 推广意图组合：`Boytond AI Translation Earbuds coupon` / `Boytond discount code` / `Boytond review` / `Boytond giveaway` / `Boytond affiliate` / `Boytond influencer`
+
+> **牢记**：传给 Facebook 脚本的两个值是「品牌 + 精确产品词 + 目标 ASIN」，三者缺一不可（ASIN 用于事后校验链接是否真是这个产品）。
 
 ### Step 2 亚马逊站内交叉验证
 - 在 amazon.com 搜品牌词（如 `Boytond`），看同品牌是否有其他 ASIN / 变体 / 带 coupon 的链接。
@@ -110,13 +113,18 @@ node scripts/facebook_search.js "B0H6Q7VFK9"        # 也支持直接传 ASIN
 Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook"，都必须查**，不得因用户没提就跳过。分两层：
 
 - **① 自动索引（无条件执行，无需登录）——底线，任何情况先跑**：
-  - `site:facebook.com "<品牌> <产品核心词>"`
-  - `site:facebook.com "<品牌>" "discount"`
+  - `site:facebook.com "<品牌> <精确产品词>"`（如 `site:facebook.com "Boytond AI Translation Earbuds"`）
+  - `site:facebook.com "<品牌> <精确产品词>" "discount"`
   采集被搜索引擎收录的公开帖子 / 主页 / 小组帖里的推广痕迹（红人主页、折扣帖、小组讨论）。
+  ⚠️ 索引查询必须带**精确产品词**，不要只写品牌；否则会召回同品牌其他型号的无关帖。
 
 - **② 实时脚本（增强，默认尝试，且必须提示用户登录）**：本机已登录 Chrome 的会话能拿到匿名搜不到的实时结果，**流程跑到这一步时必须主动提示用户去登录 Facebook**——不要默认静默降级到索引就当查完了。
   1. 先探测本机 9222 端口是否已有带登录态的调试 Chrome（`facebook_search.js` 会自动连）。
-  2. 若连上 → 直接跑 `node scripts/facebook_search.js "<品牌>"`，结果并入报告与 CSV。
+  2. 若连上 → 直接跑（**务必带上精确产品词和目标 ASIN**，脚本会据此校验每条链接的 ASIN）：
+     ```powershell
+     node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
+     ```
+     脚本会产出 `facebook_<品牌>.json`，每条帖子带 `asin_match`（exact / other / unknown）、`relevance`（高/中/低）、`in_group` 等字段。
   3. 若没连上 → **必须暂停并提示用户**：
      > "Facebook 实时采集需要本机已登录的 Chrome。请运行 `scripts/start_chrome_debug`（Windows 双击 .bat / Mac·Linux 跑 .sh），在弹出的 Chrome 里登录 Facebook，并保持窗口开着。登录好后告诉我一声，我继续跑。"
      - 可以先用 ① 的索引结果出**初步**产出，但**务必同时告知用户"实时结果覆盖更全，建议登录后补齐"**。
@@ -126,6 +134,13 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
 - **③ 手动（兜底）**：若自动 + 脚本都拿不到，给 references/facebook_manual_sop.md 让推广员补，产出留「待推广员补充」占位。
 
 **关键原则**：Facebook 永远是默认动作；登录态是"增强"不是"前提"。没登录态就走索引，不要等用户说"查 Facebook"才动。
+
+### Step 4.1 Facebook 结果的 ASIN 校验与分流（防"点进去 ASIN 对不上"）
+脚本已对每条带 Amazon 链接的帖子提取并比对 ASIN。报告合并时**必须按 `asin_match` 分流**，绝不能混在一起：
+- **`asin_match = exact`** → 链接 ASIN == 目标 ASIN，**金标准**，直接进报告主结果（验证过的本品推广）。
+- **`asin_match = other`** → 链接里是**另一个 ASIN**（同品牌其他型号），**不是目标产品**。必须单独放进报告末尾的「⚠️ 其他 Boytond 产品（ASIN 不同）」附录，并在备注里写明"ASIN `B0XXXX` ≠ 目标 `B0H6Q7VFK9`，疑似同品牌其他型号，请勿混淆"。
+- **`relevance = 低` 的群组帖**（无产品词、无 ASIN）→ 视为疑似噪音，**默认不进主结果**；若数量多，可折叠进"低相关/疑似噪音（供人工复核）"小节，并提示用户这些大概率与目标产品无关。
+- 没有 Amazon 链接但 `product_kw_match = true`（命中精确产品词）→ 可进主结果，但需标注"未含可验证链接，供参考"。
 
 ### Step 5 Pinterest / Instagram
 - Pinterest：`site:pinterest.com "<品牌> <产品核心词>"` 或搜品牌词，看有无种草图钉、是否带外链。
@@ -140,9 +155,10 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
 - 综合判断：这个 ASIN 主要靠什么做起来的（站外 deal？红人？SEO 博客？站内广告？）
 
 ### Step 7 产出交付
-- **Markdown 调研报告**：套用 `assets/report_template.md`。
+- **Markdown 调研报告**：套用 `assets/report_template.md`。Facebook 部分按 Step 4.1 的 `asin_match` 分流：主结果 = 精确命中（exact）+ 产品词命中；末尾单列「其他 ASIN / 低相关噪音」附录并加警示。
 - **结构化明细 CSV**：套用 `assets/findings_template.csv`，列 =
   `ASIN, 渠道, 类型, URL, 标题/摘要, 折扣码, 折扣力度, 账号/红人, 日期, 截图路径, 备注`
+  - 备注里务必标注该条的 `asin_match` 状态（exact / other / unknown）与 `relevance`，便于用户一眼判断可信度。
 - 文件放在用户指定目录（默认当前 workspace），最后交给用户查看。
 
 ## 合规与边界

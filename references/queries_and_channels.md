@@ -35,8 +35,14 @@
 - 搜 `<产品核心词>` → 看排名、红人视频（Videos for this product）
 
 ### Facebook（自动，Google 索引）
-- `site:facebook.com "<品牌> <产品核心词>"`
-- `site:facebook.com "<品牌>" "discount"`
+- `site:facebook.com "<品牌> <精确产品词>"`（如 `site:facebook.com "Boytond AI Translation Earbuds"`）
+- `site:facebook.com "<品牌> <精确产品词>" "discount"`
+
+> ⚠️ 必须带**精确产品词**，不要只写品牌——只写品牌会召回同品牌其他型号（不同 ASIN）的无关帖。
+> 实时脚本（`facebook_search.js`）需传 `--asin=<目标ASIN>`，脚本会比对每条链接的 ASIN：
+> - `asin_match=exact` → 确为本产品，进主结果；
+> - `asin_match=other` → 同品牌其他型号，单独分流到"其他 ASIN"附录，勿混淆；
+> - 无 ASIN 但命中精确产品词 → 可参考，标注"未验证链接"。
 
 ### Pinterest
 - `site:pinterest.com "<品牌> <产品核心词>"`

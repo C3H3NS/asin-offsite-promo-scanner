@@ -34,10 +34,15 @@ bash start_chrome_debug.sh
 ### 第 2 步：跑采集脚本
 另开一个终端：
 ```powershell
+# 推荐：品牌 + 精确产品词 + 目标 ASIN（脚本会校验每条链接的 ASIN）
+node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
+# 仅品牌降级模式（不推荐，会召回同品牌其他型号的无关帖子）：
 node facebook_search.js "Boytond"
-# 支持传品类：   node facebook_search.js "Boytond" "earbuds"
-# 也支持直接传 ASIN：node facebook_search.js "B0H6Q7VFK9"
 ```
+
+> ⚠️ **务必传精确产品词和目标 ASIN**。只传品牌会从根上召回同品牌所有型号（不同 ASIN）的帖子，
+> 造成"点进去 ASIN 对不上"的噪音。脚本会对每条带 Amazon 链接的帖提取 ASIN，与 `--asin` 比对，
+> 在 JSON 里给出 `asin_match`（exact/other/unknown）与 `relevance`（高/中/低）字段。
 
 脚本会自动：
 1. 先连已在 9222 的调试 Chrome（连上就复用登录态）；
