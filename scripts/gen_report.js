@@ -33,7 +33,7 @@ const couponRe = /coupon\s*[:\-]\s*([0-9]{1,3}%|[A-Z0-9]{4,12})/i;
 const L = [];
 L.push(`# ${esc(j.brand)} — ASIN 站外推广侦察报告`);
 L.push('');
-L.push(`> 生成时间：${fmtTime(j.captured_at)} ｜ 数据源：${path.basename(jsonPath)} ｜ 工具版本：facebook_search.js v4.4.4`);
+L.push(`> 生成时间：${fmtTime(j.captured_at)} ｜ 数据源：${path.basename(jsonPath)} ｜ 工具版本：facebook_search.js v4.4.5`);
 L.push('');
 
 // 一、扫描概况
@@ -97,29 +97,12 @@ if (exactPosts.length === 0) {
   });
 }
 
-// 四、其他高相关帖
-const otherHigh = posts.filter(p => p.relevance >= 2 && p.asin_match !== 'exact');
-L.push('## 四、其他高相关 / 疑似推广帖（非目标 ASIN）');
-L.push('');
-if (otherHigh.length === 0) {
-  L.push('本次无其它高相关帖。');
-  L.push('');
-} else {
-  otherHigh.slice(0, 15).forEach((p, i) => {
-    const snippet = (p.text || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-    L.push(`${i + 1}. [${esc(p.relevance_label)}] ${esc(p.asin_match || '无ASIN')} — ${esc(snippet)}${snippet.length >= 140 ? '…' : ''}`);
-    if (p.amazon_url) L.push(`   ↳ Amazon: ${esc(p.amazon_url)}`);
-    if (p.discount_code) L.push(`   ↳ 折扣码: ${esc(p.discount_code)}`);
-  });
-  L.push('');
-}
-
-// 五、折扣码 & 促销线索
-const withCodes = posts.filter(p => p.discount_code);
-L.push('## 五、折扣码 & 促销线索汇总');
+// 四、折扣码 & 促销线索（仅目标 ASIN 命中帖）
+const withCodes = exactPosts.filter(p => p.discount_code);
+L.push('## 四、折扣码 & 促销线索汇总（目标 ASIN）');
 L.push('');
 if (withCodes.length === 0) {
-  L.push('未发现明确折扣码（部分帖可能以图片形式展示，文本未捕获）。');
+  L.push('目标命中帖中未发现明确折扣码（部分帖可能以图片形式展示，文本未捕获）。');
   L.push('');
 } else {
   withCodes.forEach((p, i) => {
@@ -129,22 +112,22 @@ if (withCodes.length === 0) {
   L.push('');
 }
 
-// 六、站外渠道分布
-L.push('## 六、站外渠道分布');
+// 五、站外渠道分布（基于目标 ASIN 命中帖）
+L.push('## 五、站外渠道分布');
 L.push('');
-const telegram = posts.filter(p => /t\.me|telegram/i.test(p.text || ''));
-const groups = posts.filter(p => p.is_deal_group);
+const telegram = exactPosts.filter(p => /t\.me|telegram/i.test(p.text || ''));
+const groups = exactPosts.filter(p => p.is_deal_group);
 L.push(`- **Telegram 渠道线索**：${telegram.length} 条`);
 telegram.slice(0, 5).forEach(p => {
   const m = (p.text || '').match(/https?:\/\/t\.me\/\S+/i);
   if (m) L.push(`  ↳ ${esc(m[0])}`);
 });
 L.push(`- **Facebook Deal / 优惠群组**：${groups.length} 条`);
-L.push(`- **直接 Amazon 链接帖**：${posts.filter(p => p.amazon_url).length} 条`);
+L.push(`- **直接 Amazon 链接帖**：${exactPosts.filter(p => p.amazon_url).length} 条`);
 L.push('');
 
-// 七、已知局限与方法说明
-L.push('## 七、已知局限与方法说明');
+// 六、已知局限与方法说明
+L.push('## 六、已知局限与方法说明');
 L.push('');
 L.push('- **Facebook 搜索返回不稳定**：同一 ASIN 不同时间搜索，召回的帖子集合可能不同（受 FB 排序/风控影响）。目标帖仅在特定查询（多为直接搜 ASIN）时稳定召回。');
 L.push('- **限流风险**：短时间内多次导航易触发 `ERR_CONNECTION_CLOSED`。脚本已加入「预热后 8s + 查询间 6s」冷却缓解；若仍被限流，被跳过的查询可单独重跑。');
@@ -152,8 +135,8 @@ L.push('- **命中逻辑**：FB 会把 amazon 链接包成 `l.facebook.com/l.php
 L.push(`- **本次查询覆盖**：${qcov}（若日志显示部分查询被限流跳过，对应渠道数据可能缺失）。`);
 L.push('');
 
-// 八、运营建议
-L.push('## 八、运营建议（基于本次结果）');
+// 七、运营建议
+L.push('## 七、运营建议（基于本次结果）');
 L.push('');
 if (exactPosts.length > 0) {
   const t = exactPosts[0];
