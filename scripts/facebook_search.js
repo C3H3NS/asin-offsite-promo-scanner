@@ -1,5 +1,5 @@
 /**
- * facebook_search.js  v4.4.2 — 修复 $$eval 闭包丢失(FB l.php在Node侧解码) + ASIN优先精确命中版
+ * facebook_search.js  v4.4.4 — 展开开关精确匹配修复(避免误点亚马逊商品卡) + 内容采集保真版
  *
  * 解决旧版两大问题：
  *   1) 旧版只按「品牌 + 泛品类(earbuds/headphones)」搜，会把同品牌其他型号
@@ -342,7 +342,7 @@ async function searchAndCollect(page, query) {
         const t = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
         if (t.length < 5) return;
         const href = el.tagName === 'A' ? el.href : '';
-        results.push({ text: t.slice(0, 400), link: href, allLinks: href ? [href] : [] });
+        results.push({ text: t, link: href, allLinks: href ? [href] : [] });
       });
       return results;
     }).catch(() => []);
@@ -381,21 +381,51 @@ function extractAmazonLinkFromHrefs(hrefs) {
   return '';
 }
 
-// 浏览器侧：收集节点内所有 a 的 href（纯 DOM 操作，不依赖任何 Node 侧函数，
-// 避免 page.$$eval 序列化时丢失闭包引用导致 extractAmazonLink 在浏览器里 undefined）
-function collectHrefs(n) {
-  return Array.from(n.querySelectorAll('a')).map(a => a.href).filter(Boolean);
-}
+// 浏览器侧：从帖子节点采集【完整正文 + 全部链接】。
+// 关键修复（v4.4.3 — 内容采集保真）：
+//  1) 自包含函数，不引用任何 Node 侧函数。page.$$eval 仅把本函数序列化注入浏览器，
+//     v4.4.2 之前在此调用 collectHrefs 会因闭包丢失而在浏览器里 undefined → 整段静默失败。
+//  2) 长帖有 "See more" / 更多 / 展开 按钮，必须点击展开后再读 innerText，否则只拿到截断摘要。
+//  3) 正文不再 slice(0,600) 截断，完整保留（仅压缩多余空白、去零宽/软连字符），忠实还原人工所见。
+async function extractFromNodes(nodes) {
+  const out = [];
+  for (const n of Array.from(nodes)) {
+    // 展开长帖：最多尝试 3 次，应对多层折叠。
+    // 关键教训（v4.4.3 实测）：FB 长帖的“展开”开关是一个【文本精确等于"展开"/See more/更多"】的
+    // 短 <span>/<div>；而“亚马逊商品卡”的价格区文本也包含"展开"二字（如"$32… 展开"），
+    // 若用“包含”匹配会误点商品卡 → 触发跳亚马逊 → 正文丢失。故必须用【精确匹配 + 长度<=12】。
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const expander = Array.from(n.querySelectorAll('a, span, div')).find(el => {
+        const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+        if (t.length === 0 || t.length > 12) return false;
+        if (!/^(see\s*more|更多|展开|…更多|\.\.\.更多|…more|more)$/i.test(t)) return false;
+        if (el.tagName === 'A') {
+          const href = el.getAttribute('href') || '';
+          // 排除外站链接与 FB 跳转服务(l.php)——这些点开会跳亚马逊，不是正文展开
+          if (/^https?:\/\/(?!(www\.|m\.|mobile\.|business\.)?facebook\.com)/i.test(href)) return false;
+          if (/^https?:\/\/l\.facebook\.com/i.test(href)) return false;
+        }
+        return true;
+      });
+      if (!expander) break;
+      try { expander.click(); } catch (e) {}
+      await new Promise(r => setTimeout(r, 400));
+    }
 
-function extractFromNodes(nodes) {
-  return nodes.map(n => {
-    const text = (n.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 600);
+    const text = (n.innerText || '')
+      .replace(/[\u200b\u200e\u200f\u00ad\u2060\ufeff]/g, '')   // 去零宽空格/LRM/RLM/软连字符/word-joiner/BOM
+      .replace(/[ \t]+/g, ' ')                                  // 压缩水平空白
+      .replace(/\n{3,}/g, '\n\n')                              // 段落间最多留一个空行
+      .trim();
+
     let link = '';
     const a = n.querySelector('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/videos/"], a[href*="/groups/"]');
     if (a) link = a.href;
-    const allLinks = collectHrefs(n);
-    return { text, link, allLinks };
-  }).filter(p => p.text.length > 0);
+
+    const allLinks = Array.from(n.querySelectorAll('a')).map(x => x.href).filter(Boolean);
+    if (text.length > 0) out.push({ text, link, allLinks });
+  }
+  return out;
 }
 
 // ── 主扫描流程（供“已有 Chrome”或“脚本自启”两种情形复用） ──
@@ -433,7 +463,7 @@ async function scan(browser, launchedByScript) {
 
   const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN);
   console.log(`\n${'═'.repeat(50)}`);
-  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.2`);
+  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.4`);
   console.log(`  品牌: ${BRAND} | 精确产品词: ${productKeyword || '(无，降级为品牌泛搜)'}`);
   console.log(`  目标 ASIN: ${TARGET_ASIN || '(未提供，仅按产品词打分)'}`);
   console.log(`  查询变体 (${queries.length}): ${queries.join(', ')}`);
