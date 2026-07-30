@@ -1,5 +1,5 @@
 /**
- * facebook_search.js  v4 — 精确产品词查询 + ASIN 校验 + 相关性降权版
+ * facebook_search.js  v4.4.2 — 修复 $$eval 闭包丢失(FB l.php在Node侧解码) + ASIN优先精确命中版
  *
  * 解决旧版两大问题：
  *   1) 旧版只按「品牌 + 泛品类(earbuds/headphones)」搜，会把同品牌其他型号
@@ -46,9 +46,11 @@ const path = require('path');
 const os = require('os');
 
 // ── 入参 ──
-const BRAND = process.argv[2] || 'Boytond';
-// 第 2 个位置参数 = 精确产品词（如 "AI Translation Earbuds"），不再用泛品类
-const CATEGORY = process.argv[3] || '';
+// 位置参数（过滤掉 -- 开头的 flag）：argv[2]=品牌, argv[3]=可选精确产品词
+const positionalArgs = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const BRAND = positionalArgs[0] || 'Boytond';
+// 第 2 个位置参数 = 精确产品词（如 "AI Translation Earbuds"），不传则留空，由 ASIN 自动提取兜底
+const CATEGORY = positionalArgs[1] || '';
 const FORCE_REFRESH = process.argv.includes('--refresh');
 
 // 目标 ASIN：--asin=B0H6Q7VFK9 或 --asin B0H6Q7VFK9
@@ -74,28 +76,34 @@ const safe = BRAND.replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
 const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'your', 'this', 'that', 'earbuds', 'headphones', 'wireless', 'bluetooth']);
 let PRODUCT_TOKENS = [];
 
-// ── 多查询变体生成（v4：精确产品词，不自动拼泛品类） ──
-function buildQueries(brand, productKeyword, targetAsin) {
-  const kw = (productKeyword || '').trim();
-  const base = [];
-  if (kw) {
-    // 核心：品牌 + 精确产品词，才是站外流通的真实写法
-    base.push(`${brand} ${kw}`);
-    base.push(`${brand} ${kw} discount`);
-    base.push(`${brand} ${kw} coupon`);
-    base.push(`${brand} ${kw} deal`);
-    base.push(`${brand} ${kw} review`);
-  } else {
-    // 降级：没有精确产品词时，至少带折扣/券意图，避免纯品牌泛召回
-    base.push(`${brand} discount`);
-    base.push(`${brand} coupon code`);
-    base.push(`${brand} deal`);
-  }
-  // 顺带用目标 ASIN 原样搜一次（碰运气，部分帖子/短链会带 ASIN）
-  if (targetAsin) base.push(targetAsin);
-  return [...new Set(base)];
+// ── 多查询变体生成（v4.3：动态多粒度，修复“Real Time 强制拼接导致召回丢失”） ──
+// 复盘：v4.2 把每个查询都拼上完整提取词（如 "AI Translation Earbuds Real Time"），
+// 但真实站外帖子常只写 "Boytond AI Translation Earbuds"（不带 Real Time），
+// Facebook 关键词匹配搜不到 → 漏掉 ASIN 完全匹配的优质帖。
+// 修复：同一产品构造「完整词 / 核心词(去尾部描述符) / 品类概念词」三档粒度，
+//       分别带折扣/券意图后缀，最大化召回；精度由 ASIN 校验兜底。
+function deriveCoreKeyword(fullKw) {
+  if (!fullKw) return '';
+  // 1) 去掉尾部描述符：real time / real-time / pro / plus / mini / max / 年份
+  let core = fullKw.replace(/\b(real[\s-]?time|realtime|pro|plus|mini|max|20\d{2})\b.*$/i, '').trim();
+  // 2) 若仍偏长（>=4 词），再去掉最后一个修饰词，进一步放宽召回
+  const words = core.split(/\s+/).filter(Boolean);
+  if (words.length >= 4) core = words.slice(0, words.length - 1).join(' ').trim();
+  return core && core !== fullKw ? core : fullKw;
 }
 
+function buildQueries(brand, productKeyword, targetAsin) {
+  // v4.4：按用户建议精简查询，避免 FB 限流；核心三查询覆盖 品牌 / 产品词 / 品牌+产品词
+  // v4.4.1：当指定目标 ASIN 时，把「ASIN 本身」作为【最高优先级】查询前置——
+  //   实测发现 FB 搜索对品牌/产品词会返回同品牌其他型号或竞品，但不一定召回「本 ASIN 的推广帖」；
+  //   而直接搜 ASIN（debug_asin 已验证）FB 会精准返回含该 ASIN 的帖子，是精确命中的最可靠信号。
+  const queries = [];
+  if (targetAsin) queries.push(targetAsin);
+  if (brand) queries.push(brand);
+  if (productKeyword) queries.push(productKeyword);
+  if (brand && productKeyword) queries.push(`${brand} ${productKeyword}`.trim());
+  return [...new Set(queries.filter(Boolean))];
+}
 // ── 从文本中提取 Amazon 链接里的 ASIN ──
 function extractAsin(text) {
   if (!text) return null;
@@ -106,21 +114,34 @@ function extractAsin(text) {
 }
 
 // ── 智能解析：从文本中提取关键情报 ──
-function parsePost(text) {
+function parsePost(text, amazonLink) {
   const info = {};
 
-  // Amazon 链接提取（匹配 amazon.com / co.uk / de / fr / jp 等站点）
-  const amazonUrlMatch = text.match(/https?:\/\/(?:www\.)?amazon\.[a-z]{2,3}(?:\.[a-z]{2})?[^\s)"]*/i);
-  if (amazonUrlMatch) {
-    info.amazon_url = amazonUrlMatch[0];
-    const domainMatch = amazonUrlMatch[0].match(/amazon\.([a-z]{2,3}(?:\.[a-z]{2})?)/i);
-    info.amazon_site = domainMatch ? domainMatch[1].toUpperCase() : null;
-    // v4：提取链接里的 ASIN
-    info.asin = extractAsin(amazonUrlMatch[0]) || extractAsin(text);
-  } else {
-    // 没有完整 URL 时，文本里若直接出现 ASIN 也记录
-    info.asin = extractAsin(text);
+  // 优先从帖子里的 Amazon 链接（含 FB 跳转 l.php 解码后的真实地址）提取
+  let asin = null;
+  let amazonUrl = null;
+  if (amazonLink && /amazon\./i.test(amazonLink)) {
+    amazonUrl = amazonLink;
+    asin = extractAsin(amazonLink);
   }
+  if (!asin) {
+    const amazonUrlMatch = text.match(/https?:\/\/(?:www\.)?amazon\.[a-z]{2,3}(?:\.[a-z]{2})?[^\s)"]*/i);
+    if (amazonUrlMatch) {
+      amazonUrl = amazonUrlMatch[0];
+      asin = extractAsin(amazonUrlMatch[0]) || extractAsin(text);
+    } else {
+      asin = extractAsin(text);
+    }
+  } else if (!amazonUrl) {
+    const amazonUrlMatch = text.match(/https?:\/\/(?:www\.)?amazon\.[a-z]{2,3}(?:\.[a-z]{2})?[^\s)"]*/i);
+    if (amazonUrlMatch) amazonUrl = amazonUrlMatch[0];
+  }
+  if (amazonUrl) {
+    info.amazon_url = amazonUrl;
+    const domainMatch = amazonUrl.match(/amazon\.([a-z]{2,3}(?:\.[a-z]{2})?)/i);
+    info.amazon_site = domainMatch ? domainMatch[1].toUpperCase() : null;
+  }
+  info.asin = asin;
 
   // 折扣码提取（常见格式: CODE - XXXXX / CODE: XXXX / voucher CODE / coupon CODE）
   const codePatterns = [
@@ -320,18 +341,50 @@ async function searchAndCollect(page, query) {
       document.querySelectorAll('div[role="main"] span, div[role="main"] p, div[role="main"] h3, div[role="main"] a').forEach(el => {
         const t = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
         if (t.length < 5) return;
-        results.push({ text: t.slice(0, 400), link: el.tagName === 'A' ? el.href : '' });
+        const href = el.tagName === 'A' ? el.href : '';
+        results.push({ text: t.slice(0, 400), link: href, allLinks: href ? [href] : [] });
       });
       return results;
     }).catch(() => []);
   }
 
-  // 对每条结果附加智能解析
-  posts.forEach(p => Object.assign(p, parsePost(p.text)));
+  // 对每条结果附加智能解析：先在 Node 侧用 allLinks 解出 amazon 真实链接（含 l.php 解码），再 parsePost
+  posts.forEach(p => {
+    const amazon_link = extractAmazonLinkFromHrefs(p.allLinks || []);
+    Object.assign(p, parsePost(p.text, amazon_link));
+    delete p.allLinks;
+  });
   posts.forEach(p => p.query_source = query);
 
   console.log(`  [✓] "${query}" 采集到 ${posts.length} 条`);
   return posts;
+}
+
+// 从帖子节点提取 Amazon 链接；兼容 FB 把 amazon 包成 l.php?u=<encoded> 跳转链接的情况
+// ── 从一组 href 中提取 Amazon 真实链接（Node 侧执行）；兼容 FB 把 amazon 包成 l.php?u=<encoded> 跳转链接 ──
+function extractAmazonLinkFromHrefs(hrefs) {
+  if (!Array.isArray(hrefs)) return '';
+  for (const h of hrefs) {
+    // 顺序关键：先判 FB 跳转链接（l.php 字符串里也含 amazon.com，必须先于直连判断）
+    if (/l\.facebook\.com\/l\.php/i.test(h)) {               // FB 跳转包裹
+      try {
+        let real = new URL(h).searchParams.get('u');
+        if (real) {
+          if (/%2F|%3A|%3F/i.test(real)) real = decodeURIComponent(real);
+          if (/amazon\./i.test(real)) return real;
+        }
+      } catch (e) {}
+    } else if (/amazon\./i.test(h)) {                        // 直连 amazon
+      return h;
+    }
+  }
+  return '';
+}
+
+// 浏览器侧：收集节点内所有 a 的 href（纯 DOM 操作，不依赖任何 Node 侧函数，
+// 避免 page.$$eval 序列化时丢失闭包引用导致 extractAmazonLink 在浏览器里 undefined）
+function collectHrefs(n) {
+  return Array.from(n.querySelectorAll('a')).map(a => a.href).filter(Boolean);
 }
 
 function extractFromNodes(nodes) {
@@ -340,7 +393,8 @@ function extractFromNodes(nodes) {
     let link = '';
     const a = n.querySelector('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/videos/"], a[href*="/groups/"]');
     if (a) link = a.href;
-    return { text, link };
+    const allLinks = collectHrefs(n);
+    return { text, link, allLinks };
   }).filter(p => p.text.length > 0);
 }
 
@@ -358,8 +412,8 @@ async function scan(browser, launchedByScript) {
     console.log('[!] 首页预热失败(继续尝试搜索):', e.message.split('\n')[0]);
   }
 
-  // v4.2：若提供了 ASIN，自动抓亚马逊标题提取精确产品词（含 Real Time 等），优先于手敲词
-  let productKeyword = CATEGORY;
+  // v4.3：若提供了 ASIN，自动抓亚马逊标题提取精确产品词（含 Real Time 等），优先于手敲词
+  let productKeyword = CATEGORY || '';
   if (TARGET_ASIN) {
     try {
       const title = await fetchAmazonTitle(browser, TARGET_ASIN);
@@ -368,10 +422,10 @@ async function scan(browser, launchedByScript) {
         productKeyword = kw;
         console.log('[✓] 从亚马逊标题自动提取精确产品词: "' + kw + '"');
       } else {
-        console.log('[!] 未从标题提取出产品词，沿用: "' + (CATEGORY || BRAND) + '"');
+        console.log('[!] 未从标题提取出产品词，降级为品类概念词（如 Boytond translation earbuds）');
       }
     } catch (e) {
-      console.log('[!] 抓亚马逊标题失败，沿用手敲/品牌词: ' + e.message.split('\n')[0]);
+      console.log('[!] 抓亚马逊标题失败，降级为品类概念词兜底: ' + e.message.split('\n')[0]);
     }
   }
   // 填充相关性判断用的 token（基于最终产品词）
@@ -379,7 +433,7 @@ async function scan(browser, launchedByScript) {
 
   const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN);
   console.log(`\n${'═'.repeat(50)}`);
-  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.2`);
+  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.2`);
   console.log(`  品牌: ${BRAND} | 精确产品词: ${productKeyword || '(无，降级为品牌泛搜)'}`);
   console.log(`  目标 ASIN: ${TARGET_ASIN || '(未提供，仅按产品词打分)'}`);
   console.log(`  查询变体 (${queries.length}): ${queries.join(', ')}`);
@@ -466,7 +520,7 @@ async function scan(browser, launchedByScript) {
   }
 }
 
-// ── v4.2：自动从亚马逊标题提取精确产品词 ──
+// ── v4.3：自动从亚马逊标题提取精确产品词 ──
 async function fetchAmazonTitle(browser, asin) {
   const ctx = browser.contexts()[0] || await browser.newContext();
   const p = await ctx.newPage();
@@ -496,9 +550,6 @@ function extractProductKeyword(title, brand) {
   let end = idx;
   const ebIdx = words.findIndex((w, i) => i >= idx && /earbud/i.test(w));
   if (ebIdx >= 0) end = ebIdx;
-  if (words[end + 1] && /^real$/i.test(words[end + 1]) && words[end + 2] && /^time$/i.test(words[end + 2])) {
-    end = end + 2;
-  }
   return words.slice(start, end + 1).join(' ').trim();
 }
 
