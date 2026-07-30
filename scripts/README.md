@@ -49,11 +49,19 @@ node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
 2. 连不上才复制 profile 自启一个；
 3. 若 profile 被占用无法复制，会打印清晰指引后**优雅退出**（不再 FATAL 崩溃），你按提示重跑 `start_chrome_debug` 即可。
 
+## 实现要点（v4.4 起，踩坑后定型）
+
+- **FB 跳转包裹解码**：帖里 amazon 链接实际是 `l.facebook.com/l.php?u=<URL编码>`。解码必须在 **Node 侧**做——`page.$$eval` 注入浏览器的函数拿不到 Node 作用域里的函数，放浏览器侧会静默失败；脚本在 Node 端解 `l.php` 还原 `amazon.com/dp/<ASIN>` 并提取 ASIN。
+- **展开开关精确匹配**：只点文本**精确等于**「展开 / See more / 更多」且长度 ≤ 12 的短元素，排除会跳亚马逊的外站 `<a>` 与 `l.php` 链接——否则会误点「亚马逊商品卡价格区」（`$32… 展开`）导致跳走、Coupon/Telegram 正文丢失。
+- **正文完整采集不截断**：去除零宽字符/软连字符后完整保留（人工所见即所得），不再 `slice(0,600)`。
+- **查询冷却降限流**：预热后 8s + 查询间 6s，降低 FB 密集访问触发的 `ERR_CONNECTION_CLOSED`。
+- **ASIN 优先查询**：传 `--asin` 时 ASIN 作为最高优先级查询前置（品牌/产品词查询 FB 未必召回本 ASIN 推广帖，直接搜 ASIN 才稳定）。
+
 ## 输出
-- `../offsite-output/facebook_<查询词>.json` —— 结构化明细（每条帖子的文本片段 + 链接 + 采集时间 + 解析出的 Amazon 链接/折扣码）
+- `../offsite-output/facebook_<查询词>.json` —— 结构化明细（每条帖子的**完整正文**（不截断）+ 解码后的 Amazon 链接 + 折扣码 + 采集时间 + `asin_match` / `relevance` 等字段）
 - `../offsite-output/facebook_<查询词>.png` —— 搜索结果截图，方便人工核对
 
-把 JSON 里的命中条目贴回技能的 `findings_template.csv` / 报告，就完成了 Facebook 这块的采集。
+把 JSON 里的命中条目整理进技能的 `findings_template.csv` / 报告，就完成了 Facebook 这块的采集。
 
 ## 注意事项
 - Facebook DOM 经常变动，帖子选择器 `[role="article"]` 是「尽力而为」的粗略采集；若某次结果为空，可人工在浏览器里看一眼截图。

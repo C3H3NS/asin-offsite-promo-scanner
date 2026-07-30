@@ -1,5 +1,5 @@
 /**
- * facebook_search.js  v4.4.4 — 展开开关精确匹配修复(避免误点亚马逊商品卡) + 内容采集保真版
+ * facebook_search.js  v4.4.5 — FB l.php解码提ASIN + 展开开关精确匹配 + 正文完整采集保真 + 查询冷却降限流版
  *
  * 解决旧版两大问题：
  *   1) 旧版只按「品牌 + 泛品类(earbuds/headphones)」搜，会把同品牌其他型号
@@ -465,7 +465,7 @@ async function scan(browser, launchedByScript) {
   // 预热后额外冷却，降低“刚预热完立刻搜 ASIN”被 FB 瞬时风控断连的概率
   await sleep(8000);
   console.log(`\n${'═'.repeat(50)}`);
-  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.4`);
+  console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.5`);
   console.log(`  品牌: ${BRAND} | 精确产品词: ${productKeyword || '(无，降级为品牌泛搜)'}`);
   console.log(`  目标 ASIN: ${TARGET_ASIN || '(未提供，仅按产品词打分)'}`);
   console.log(`  查询变体 (${queries.length}): ${queries.join(', ')}`);

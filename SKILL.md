@@ -124,6 +124,12 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
      node scripts/facebook_search.js "Boytond" --asin=B0H6Q7VFK9
      ```
      脚本会产出 `facebook_<品牌>.json`，每条帖子带 `asin_match`（exact / other / unknown）、`relevance`（高/中/低）、`in_group` 等字段。
+   - **实现要点（v4.4 起，踩坑后定型）**：
+     - **Amazon 链接被 FB 包裹**：帖里的 amazon 链接实际是 `l.facebook.com/l.php?u=<URL编码>`。脚本在 **Node 侧**解码 `l.php` 还原真实 `amazon.com/dp/<ASIN>` 并提取 ASIN（注意：浏览器侧 `page.$$eval` 无法调用 Node 函数，解码必须放在 Node 端做，否则会静默失败）。
+     - **长帖「展开/See more」开关精确匹配**：只点**文本精确等于**「展开 / See more / 更多」的短元素（长度 ≤ 12），**排除**会跳亚马逊的外站 `<a>` 与 `l.php` 链接；避免误点「亚马逊商品卡价格区」（`$32… 展开`，整段含"展开"二字）导致跳走、Coupon/Telegram 正文丢失。
+     - **正文完整采集、不截断**：去除零宽字符/软连字符后完整保留（人工所见即所得），不再 `slice(0,600)` 硬截断。
+     - **查询冷却降限流**：预热后 8s + 查询间 6s，降低 FB 短时密集导航触发的 `ERR_CONNECTION_CLOSED` 限流。
+     - **ASIN 优先查询**：传入 `--asin` 时，ASIN 作为**最高优先级查询前置**——品牌/产品词查询 FB 排序常把同品牌其他型号顶在前面，未必召回本 ASIN 的推广帖，只有直接搜 ASIN 才稳定命中。
   3. 若没连上 → **必须暂停并提示用户**：
      > "Facebook 实时采集需要本机已登录的 Chrome。请运行 `scripts/start_chrome_debug`（Windows 双击 .bat / Mac·Linux 跑 .sh），在弹出的 Chrome 里登录 Facebook，并保持窗口开着。登录好后告诉我一声，我继续跑。"
      - 可以先用 ① 的索引结果出**初步**产出，但**务必同时告知用户"实时结果覆盖更全，建议登录后补齐"**。
@@ -154,7 +160,7 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
 - 综合判断：这个 ASIN 主要靠什么做起来的（站外 deal？红人？SEO 博客？站内广告？）
 
 ### Step 7 产出交付
-- **Markdown 调研报告**：套用 `assets/report_template.md`。Facebook 部分按 Step 4.1 的 `asin_match` 分流：主结果 = 精确命中（exact）+ 产品词命中；末尾单列「其他 ASIN / 低相关噪音」附录并加警示。
+- **Markdown 调研报告**：由 `scripts/gen_report.js` 读取 `facebook_<品牌>.json` 自动生成（套 `assets/report_template.md` 思路）。**报告只聚焦目标 ASIN 的精确命中帖（`asin_match=exact`）**，不混入非目标 ASIN 帖（已按需求移除「其他高相关帖」章节）；折扣码 / 站外渠道分布统计也仅基于精确命中帖。若需保留「其他 ASIN / 低相关噪音」分流明细，放进下面的 CSV 即可。
 - **结构化明细 CSV**：套用 `assets/findings_template.csv`，列 =
   `ASIN, 渠道, 类型, URL, 标题/摘要, 折扣码, 折扣力度, 账号/红人, 日期, 截图路径, 备注`
   - 备注里务必标注该条的 `asin_match` 状态（exact / other / unknown）与 `relevance`，便于用户一眼判断可信度。
@@ -168,7 +174,7 @@ Facebook 是默认采集渠道之一，**无论用户是否专门提到"Facebook
 ## 工具使用（平台无关）
 - 联网搜索 / 抓取（Google 索引、Pinterest、Instagram、deal 站、博客）：用当前环境可用的 WebSearch / WebFetch / 浏览器工具。
 - Facebook 实时采集：运行 `scripts/facebook_search.js`（需本机 Chrome 调试端口 + 登录态，见上文）。
-- 生成报告与 CSV：用 Write 工具写出文件。
+- 生成报告与 CSV：Markdown 报告用 `node scripts/gen_report.js`（读 `facebook_<品牌>.json` 自动产出）；CSV 明细按 `assets/findings_template.csv` 模板整理（目前为手动汇总各渠道发现，后续可脚本化）。
 
 ## 多 ASIN 批处理
 若一次给多个 ASIN，逐个跑 Step 1–6，最后合并到同一份报告（每个 ASIN 一节）+ 同一份 CSV（追加行）。

@@ -81,6 +81,9 @@ node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    
 | ③ | 浏览器/脚本访问 `127.0.0.1:9222` 失败 | 系统代理（Clash/V2Ray 等）把本机回环也走代理 | 启动参数加 `--proxy-bypass-list="127.0.0.1;localhost"` |
 | ④ | Playwright 连 CDP 报版本错 | 新版 Chrome 要求 `--remote-allow-origins=*` | 启动参数已加该 flag |
 | ⑤ | 一个查询超时整脚本崩 | 单查询 `goto` 失败被当作 FATAL | 脚本已改为单查询 try/catch，失败只跳过该查询 |
+| ⑥ | 帖里的 amazon 链接拿不到 / ASIN 对不上 | FB 对出站链接做跳转包裹：`l.facebook.com/l.php?u=<URL编码>` | 脚本在 **Node 侧**解码 `l.php` 还原真实 `amazon.com/dp/<ASIN>`（浏览器侧 `$$eval` 无法调用 Node 函数，解码必须放 Node 端，否则静默失败） |
+| ⑦ | 长帖点了"展开"却跳去亚马逊，Coupon/Telegram 正文丢失 | 展开开关用「包含」匹配，误中亚马逊商品卡价格区（`$32… 展开`，整段含"展开"二字） | 改为**文本精确匹配**（= 展开 / See more / 更多，长度 ≤ 12），只点真正的就地展开 span，排除外站 `<a>` 与 `l.php` |
+| ⑧ | 连续多查询被 FB 断连 `ERR_CONNECTION_CLOSED` | 短时密集导航触发风控 | 加冷却：预热后 8s + 查询间 6s；若仍被限流，被跳过的查询可单独重跑 |
 
 ### 3.4 不想用本地登录态？
 技能也支持 Google `site:facebook.com` 索引抓取（见 SKILL.md Step 4），无需登录即可拿到被搜索引擎收录的公开帖，只是覆盖度低于登录态。
@@ -89,10 +92,11 @@ node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    
 
 ## 四、产出
 
-- **Markdown 报告**：套 `assets/report_template.md`，覆盖产品基础信息、各渠道发现、折扣/链接汇总、综合判断。
+- **Markdown 报告**：由 `scripts/gen_report.js` 读取 `offsite-output/facebook_<品牌>.json` 自动生成（套 `assets/report_template.md` 思路）。**报告只聚焦目标 ASIN 的精确命中帖，不混入非目标 ASIN 帖**；折扣码 / 站外渠道分布统计也仅基于精确命中帖。
 - **CSV 明细**：套 `assets/findings_template.csv`，列 =
   `ASIN, 渠道, 类型, URL, 标题_摘要, 折扣码, 折扣力度, 账号_红人, 日期, 截图路径, 备注`
-- FB 实时结果：`offsite-output/facebook_<品牌>.json`（结构化）+ `.png`（截图备查）。
+  （目前为手动汇总各渠道发现填入；FB 这块的命中条目可直接从 `facebook_<品牌>.json` 整理过来）
+- FB 实时结果：`offsite-output/facebook_<品牌>.json`（结构化，含完整正文 / 解码后的 amazon URL / 折扣码）+ `.png`（截图备查）。
 
 ---
 
