@@ -462,6 +462,8 @@ async function scan(browser, launchedByScript) {
   PRODUCT_TOKENS = productKeyword.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
 
   const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN);
+  // 预热后额外冷却，降低“刚预热完立刻搜 ASIN”被 FB 瞬时风控断连的概率
+  await sleep(8000);
   console.log(`\n${'═'.repeat(50)}`);
   console.log(`  ASIN 站外推广侦察 — Facebook 多查询扫描 v4.4.4`);
   console.log(`  品牌: ${BRAND} | 精确产品词: ${productKeyword || '(无，降级为品牌泛搜)'}`);
@@ -470,7 +472,14 @@ async function scan(browser, launchedByScript) {
   console.log(`${'═'.repeat(50)}\n`);
 
   let allPosts = [];
+  let qi = 0;
   for (const q of queries) {
+    if (qi > 0) {
+      const cool = 6000;  // 查询间冷却，降低 FB 对密集访问的限流/风控
+      console.log(`[*] 查询间冷却 ${cool/1000}s，降低 FB 限流风险...`);
+      await sleep(cool);
+    }
+    qi++;
     const hits = await searchAndCollect(page, q);
     allPosts = allPosts.concat(hits);
   }
