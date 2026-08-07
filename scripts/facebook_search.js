@@ -69,8 +69,25 @@ const CHROME_EXE = process.env.CHROME_EXE
 const CDP_URL = process.env.CHROME_CDP_URL || 'http://127.0.0.1:9222';
 const DEBUG_PORT = process.env.CHROME_DEBUG_PORT || '9222';
 
-const OUT_DIR = path.resolve(__dirname, '..', 'offsite-output');
+const OUT_DIR = process.env.FBSCAN_OUT_DIR
+  ? path.resolve(process.env.FBSCAN_OUT_DIR)
+  : path.resolve(__dirname, '..', 'offsite-output');
 const safe = BRAND.replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
+
+// ── 静默模式：把调试 Chrome 窗口挪出可视区，避免抓取时弹到最前面干扰工作 ──
+// 由 scan.js 通过环境变量 FBSCAN_QUIET=1 打开；单独运行本脚本时加 --quiet 亦可。
+const QUIET = process.env.FBSCAN_QUIET === '1' || process.argv.includes('--quiet');
+async function hideWindow(page) {
+  if (!QUIET || !page) return;
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const { windowId } = await cdp.send('Browser.getWindowForTarget');
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } }).catch(() => {});
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { left: -32000, top: -32000, width: 1440, height: 900 } });
+    } finally { await cdp.detach().catch(() => {}); }
+  } catch (e) { /* 控制失败则降级为可见模式，不影响抓取 */ }
+}
 
 // 产品词拆 token（用于相关性判断；运行时根据最终产品词填充，见 scan()）
 const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'your', 'this', 'that', 'earbuds', 'headphones', 'wireless', 'bluetooth']);
@@ -431,7 +448,11 @@ async function extractFromNodes(nodes) {
 // ── 主扫描流程（供“已有 Chrome”或“脚本自启”两种情形复用） ──
 async function scan(browser, launchedByScript) {
   const context = browser.contexts()[0] || await browser.newContext();
+  // 先把已有窗口挪走，再开新标签页，避免新 tab 把窗口带到最前面
+  const existing = context.pages()[0];
+  if (existing) await hideWindow(existing);
   const page = await context.newPage();
+  await hideWindow(page);
 
   // 会话预热：先访问 Facebook 首页确认登录态（首页 200 很快）
   try {
@@ -563,6 +584,7 @@ async function scan(browser, launchedByScript) {
 async function fetchAmazonTitle(browser, asin) {
   const ctx = browser.contexts()[0] || await browser.newContext();
   const p = await ctx.newPage();
+  await hideWindow(p);
   try {
     await p.goto('https://www.amazon.com/dp/' + asin, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await p.waitForSelector('#productTitle', { timeout: 10000 }).catch(() => {});

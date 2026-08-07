@@ -17,16 +17,27 @@ taskkill /F /IM chrome.exe 2>nul
 timeout /t 2 /nobreak >nul
 del /f /q "%USERPROFILE%\AppData\Local\Google\Chrome\User Data\SingletonLock" 2>nul
 
+REM   5) --disable-backgrounding-occluded-windows / --disable-renderer-backgrounding
+REM      静默模式下窗口会被挪出可视区，若不加这两个参数 Chrome 会把它当"看不见的
+REM      窗口"降频渲染，导致页面加载不全、抓取结果变少。
+
 start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
   --remote-debugging-port=9222 ^
   --remote-allow-origins=* ^
   --proxy-bypass-list="127.0.0.1;localhost" ^
+  --disable-backgrounding-occluded-windows ^
+  --disable-renderer-backgrounding ^
   --user-data-dir="%USERPROFILE%\AppData\Local\Google\Chrome\User Data"
 
 echo.
-echo [OK] 调试 Chrome 已启动。请在弹出的窗口里登录 Facebook，
-echo      然后另开一个终端运行：
-echo        node facebook_search.js "你的品牌名"
+echo [OK] 调试 Chrome 已启动。请在弹出的窗口里登录 Facebook
+echo      （顺手把 Pinterest / Instagram 也登录了，覆盖更全）。
+echo.
+echo      登录完成后，另开一个终端运行（一条命令跑完全流程）：
+echo        scan.bat B0XXXXXXXX
+echo.
+echo      运行时窗口会自动移出屏幕静默抓取，不会弹到你面前打断工作；
+echo      跑完自动最小化到任务栏。想看抓取过程就加 --show 参数。
 echo.
 echo      验证端口是否生效：浏览器访问  http://127.0.0.1:9222
 echo      （应看到一个 JSON 页面，列出当前标签页）

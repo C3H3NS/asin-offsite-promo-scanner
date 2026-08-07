@@ -50,9 +50,14 @@ const SKIP_PINTEREST = process.argv.includes('--skip-pinterest');
 const SKIP_INSTAGRAM = process.argv.includes('--skip-instagram');
 const SKIP_GOOGLE = process.argv.includes('--skip-google');
 const NO_REPORT = process.argv.includes('--no-report');
+// 静默模式：默认开启（浏览器挪到屏幕外跑，不干扰前台工作）。加 --show 可看见抓取过程。
+const SHOW_WINDOW = process.argv.includes('--show');
+const KEEP_HIDDEN = process.argv.includes('--keep-hidden');
+const OUT_ARG = getFlag('out');
 
 if (!TARGET_ASIN) {
   console.error('用法: node scan.js <ASIN> [--brand=品牌] [--product="精确产品词"] [--site=amazon.com]');
+  console.error('     [--out=输出目录] [--show 显示浏览器] [--skip-fb|--skip-pinterest|--skip-instagram|--skip-google]');
   console.error('示例: node scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"');
   process.exit(1);
 }
@@ -60,12 +65,61 @@ if (!TARGET_ASIN) {
 // ── 配置 ──
 const CDP_URL = process.env.CHROME_CDP_URL || 'http://127.0.0.1:9222';
 const CHROME_EXE = process.env.CHROME_EXE || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const OUT_DIR = path.resolve(__dirname, '..', 'offsite-output');
+const OUT_DIR = OUT_ARG ? path.resolve(OUT_ARG) : path.resolve(__dirname, '..', 'offsite-output');
 const SCRIPTS_DIR = __dirname;
 const safe = (BRAND_ARG || TARGET_ASIN).replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
 
 // ── 通用工具 ──
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── 静默窗口控制：把调试 Chrome 挪到屏幕外，避免抓取时窗口弹到最前面 ──
+// 说明：仍是「有头」模式（登录态/反爬表现与真人一致），只是窗口坐标在可视区之外。
+const OFFSCREEN_BOUNDS = { left: -32000, top: -32000, width: 1440, height: 900 };
+let _hiddenOnce = false;
+
+async function setWindowBounds(page, bounds) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { windowId } = await cdp.send('Browser.getWindowForTarget');
+    // CDP 要求：窗口处于 minimized/maximized 时不能直接改坐标，须先回 normal
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } }).catch(() => {});
+    await cdp.send('Browser.setWindowBounds', { windowId, bounds });
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+}
+
+async function hideWindow(page) {
+  if (SHOW_WINDOW || !page) return;
+  try {
+    await setWindowBounds(page, OFFSCREEN_BOUNDS);
+    if (!_hiddenOnce) {
+      console.log('[静默] 浏览器窗口已移出可视区，抓取期间不会干扰你的前台工作（加 --show 可显示）');
+      _hiddenOnce = true;
+    }
+  } catch (e) { /* 控制失败就降级为普通可见模式，不影响主流程 */ }
+}
+
+async function restoreWindow(page) {
+  if (SHOW_WINDOW || KEEP_HIDDEN || !page) return;
+  try {
+    // 先移回可视区坐标，再最小化——否则用户从任务栏还原时窗口仍在屏幕外找不到
+    await setWindowBounds(page, { left: 80, top: 60, width: 1440, height: 900 });
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const { windowId } = await cdp.send('Browser.getWindowForTarget');
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+    } finally { await cdp.detach().catch(() => {}); }
+  } catch (e) { /* ignore */ }
+}
+
+// 统一入口：开新标签页并立刻确保窗口处于静默位置
+async function newQuietPage(browser) {
+  const ctx = browser.contexts()[0] || await browser.newContext();
+  const p = await ctx.newPage();
+  await hideWindow(p);
+  return p;
+}
 
 function extractAsin(text) {
   if (!text) return null;
@@ -177,8 +231,7 @@ function printStartHelper() {
 
 // ── 亚马逊商品解析（取标题/品牌/价格/Coupon，供后续查询与报告使用） ──
 async function fetchAmazonInfo(browser, asin) {
-  const ctx = browser.contexts()[0] || await browser.newContext();
-  const p = await ctx.newPage();
+  const p = await newQuietPage(browser);
   const info = { asin, title: null, brand: BRAND_ARG || null, product_keyword: PRODUCT_ARG || '', price: null, coupon: null, site: SITE_ARG };
   try {
     await p.goto(`https://www.${SITE_ARG}/dp/${asin}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -216,7 +269,12 @@ function runFacebookScan(brand, product, asin) {
     if (product) args.push(product);
     if (asin) args.push(`--asin=${asin}`);
     console.log(`\n[*] 运行 Facebook 扫描: node facebook_search.js ${brand || ''} ${product || ''} ${asin ? '--asin=' + asin : ''}`.trim());
-    const child = execFile(process.execPath, args, { cwd: SCRIPTS_DIR, windowsHide: true }, (err) => {
+    const childEnv = Object.assign({}, process.env, {
+      // 让 facebook_search.js 复用同一套静默策略（新标签页也不弹到最前）
+      FBSCAN_QUIET: SHOW_WINDOW ? '0' : '1',
+      FBSCAN_OUT_DIR: OUT_DIR,
+    });
+    const child = execFile(process.execPath, args, { cwd: SCRIPTS_DIR, windowsHide: true, env: childEnv }, (err) => {
       if (err) console.log('[!] Facebook 子进程异常: ' + err.message.split('\n')[0]);
       const jsonPath = path.join(OUT_DIR, `facebook_${safe}.json`);
       try {
@@ -414,8 +472,12 @@ async function main() {
     process.exit(0);
   }
 
+  // 一连上就先把窗口挪走，后续所有新标签页都开在这个「看不见」的窗口里
+  const existing = (browser.contexts()[0] && browser.contexts()[0].pages()[0]) || null;
+  if (existing) await hideWindow(existing);
+
   console.log(`\n${'═'.repeat(56)}`);
-  console.log(`  ASIN 站外推广侦察 · 一体化 CLI v1.0.0`);
+  console.log(`  ASIN 站外推广侦察 · 一体化 CLI v1.1.0`);
   console.log(`  目标 ASIN: ${TARGET_ASIN} ｜ 站点: ${SITE_ARG}`);
   console.log(`  skip: ${[SKIP_FB ? 'FB' : '', SKIP_PINTEREST ? 'Pinterest' : '', SKIP_INSTAGRAM ? 'Instagram' : '', SKIP_GOOGLE ? 'Google' : ''].filter(Boolean).join(',') || '无'}`);
   console.log(`${'═'.repeat(56)}\n`);
@@ -439,7 +501,7 @@ async function main() {
     console.log('\n[*] Step 2/5 跳过 Facebook（--skip-fb）');
   }
 
-  const page = await (browser.contexts()[0] || await browser.newContext()).newPage();
+  const page = await newQuietPage(browser);
 
   // Step 3: Pinterest
   console.log('\n[*] Step 3/5 Pinterest 采集...');
@@ -464,7 +526,20 @@ async function main() {
     generateCSV(agg);
   }
 
-  console.log('\n[+] 完成。调试 Chrome 保持打开（登录态可复用）。');
+  // 收尾：把窗口挪回可视区并最小化（避免用户从任务栏还原后窗口还在屏幕外）
+  await restoreWindow(page);
+  await page.close().catch(() => {});
+
+  console.log(`\n${'═'.repeat(56)}`);
+  console.log('  ✅ 全部完成，报告在下面这个文件夹里：');
+  console.log(`  📁 ${OUT_DIR}`);
+  console.log('');
+  console.log('  ├─ ' + `report_${safe}.md` + '     ← 看这个（Markdown 报告，双击可用记事本/VSCode 打开）');
+  console.log('  ├─ ' + `findings_${safe}.csv` + '   ← 明细表（带 BOM，双击直接用 Excel 打开，中文不乱码）');
+  console.log('  └─ ' + `scan_${safe}.json` + '     ← 原始数据（给程序用）');
+  console.log(`${'═'.repeat(56)}`);
+  console.log('  调试 Chrome 保持打开（登录态可复用），已最小化到任务栏。');
+  console.log('');
   await browser.close().catch(() => {});
 }
 

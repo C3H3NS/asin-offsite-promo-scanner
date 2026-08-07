@@ -89,7 +89,33 @@ node scan.js B0H6Q7VFK9 --skip-fb                            # 跳过 Facebook
 # 指定站点 / 只出 JSON
 node scan.js B0H6Q7VFK9 --site=amazon.co.uk
 node scan.js B0H6Q7VFK9 --no-report
+
+# 自定义报告输出目录（默认 ../offsite-output）
+node scan.js B0H6Q7VFK9 --out=D:\站外报告
+node scan.js B0H6Q7VFK9 --out=%USERPROFILE%\Desktop\站外报告
+
+# 想亲眼看抓取过程（默认是静默的，见下节）
+node scan.js B0H6Q7VFK9 --show
 ```
+
+### 静默模式（默认开启 · 不打断你的工作）
+
+抓取需要真实浏览器，但默认**不会把 Chrome 窗口弹到你面前**：
+
+- 脚本一连上调试 Chrome，就通过 CDP `Browser.setWindowBounds` 把窗口挪到屏幕外坐标（`-32000,-32000`）；
+- 之后所有新标签页都开在这个「看不见」的窗口里，不会抢占前台、不会遮挡你正在做的事；
+- **仍是有头（headed）模式**——登录态、Cookie、反爬表现和真人浏览完全一致，不像 headless 那样容易触发 Facebook 风控；
+- 跑完自动把窗口移回可视区坐标并**最小化到任务栏**（先移回再最小化，否则你从任务栏还原时窗口还在屏幕外找不到）；
+- FB 子进程（`facebook_search.js`）通过环境变量 `FBSCAN_QUIET=1` 同步启用，单独运行它时加 `--quiet` 也可以。
+
+| 参数 | 作用 |
+|------|------|
+| 默认（不加参数） | 静默：窗口移出屏幕，跑完最小化 |
+| `--show` | 显示窗口，肉眼观察抓取过程（调试用） |
+| `--keep-hidden` | 跑完保持窗口在屏幕外，不移回（连续跑多个 ASIN 时用） |
+
+> ⚠️ 依赖 `start_chrome_debug` 启动的 Chrome 带 `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding`（脚本已内置）。
+> 缺这两个参数时，Chrome 会把「看不见的窗口」降频渲染，导致页面加载不全、抓取结果变少。
 
 ### 它自动做什么
 1. **解析亚马逊商品页**：抓标题/品牌/价格/Coupon，作为后续查询与报告的基础；
@@ -109,6 +135,25 @@ node scan.js B0H6Q7VFK9 --no-report
 - **登录墙检测**：各渠道采集前检测是否跳到登录页，跳了就返回空并提示去调试 Chrome 登录后重跑；
 - **优雅退出**：连不上调试 Chrome 时打印清晰指引后 `exit(0)`，不崩溃；
 - **中文 CSV**：写文件时加 `\uFEFF` BOM，Excel 打开中文不乱码。
+
+### 报告输出在哪？
+
+默认落在**仓库目录下的 `offsite-output/` 文件夹**（和 `scripts/` 同级）：
+
+```
+asin-offsite-promo-scanner/
+├─ scripts/            ← 你在这里跑命令
+└─ offsite-output/     ← 报告都在这里 ✅
+   ├─ report_<品牌>.md      ← 主要看这个（人读报告）
+   ├─ findings_<品牌>.csv   ← 明细表，双击用 Excel 打开（带 BOM，中文不乱码）
+   ├─ scan_<品牌>.json      ← 原始聚合数据（给程序用）
+   └─ facebook_<品牌>.json/.png  ← FB 段原始结果 + 搜索结果截图
+```
+
+文件名里的 `<品牌>` 取自 `--brand`（没传就用 ASIN），例如 `--brand=Boytond` → `report_Boytond.md`。
+**脚本跑完会把这个文件夹的绝对路径直接打印在终端最后一屏**，复制粘贴到资源管理器即可打开。
+
+想换地方存：`--out=D:\站外报告`（目录不存在会自动创建）。
 
 ### 输出示例（以 B0H6Q7VFK9 为例）
 - `offsite-output/scan_Boytond.json`：含 `amazon` / `facebook` / `pinterest` / `instagram` / `google` / `queries_used`；

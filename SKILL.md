@@ -91,11 +91,14 @@ node scripts/scan.js B0H6Q7VFK9
 node scripts/scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"
 node scripts/scan.js B0H6Q7VFK9 --skip-pinterest --skip-instagram   # 只跑 FB + Google
 node scripts/scan.js B0H6Q7VFK9 --site=amazon.co.uk                   # 英国站
+node scripts/scan.js B0H6Q7VFK9 --out=D:\站外报告                     # 自定义输出目录
+node scripts/scan.js B0H6Q7VFK9 --show                                # 显示浏览器（默认静默）
 ```
 
 - 全部走浏览器（Playwright 连 9222 调试 Chrome，复用登录态），**无需任何 API key**；
-- FB 段作为子进程复用已验证的 `facebook_search.js`；
-- 产物：`offsite-output/scan_<品牌>.json` / `report_<品牌>.md` / `findings_<品牌>.csv`（CSV 带 BOM，Excel 直接打开中文不乱码）；
+- **默认静默运行**：窗口通过 CDP 挪到屏幕外（`-32000,-32000`），抓取全程不弹到最前面、不打断工作，跑完自动最小化到任务栏。仍是有头模式，登录态与反爬表现与真人一致（不用 headless 以免触发 FB 风控）。加 `--show` 可观察过程，`--keep-hidden` 可跑完保持隐藏；
+- FB 段作为子进程复用已验证的 `facebook_search.js`（通过 `FBSCAN_QUIET=1` 同步静默）；
+- 产物默认在**仓库根目录的 `offsite-output/`**：`report_<品牌>.md`（人读报告）/ `findings_<品牌>.csv`（Excel 明细，带 BOM 中文不乱码）/ `scan_<品牌>.json`（原始聚合）。脚本跑完会把该目录**绝对路径打印在终端最后一屏**；
 - 没连上调试 Chrome 时脚本打印指引后优雅退出，不崩溃。详见 `scripts/README.md` 的「一体化 CLI：scan.js」一节。
 
 ---

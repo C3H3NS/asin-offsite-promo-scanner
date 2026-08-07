@@ -34,16 +34,24 @@ pkill -f "$CHROME_BIN" 2>/dev/null || true
 sleep 2
 
 # 启动带调试端口的 Chrome（后台）
+# --disable-backgrounding-occluded-windows / --disable-renderer-backgrounding：
+#   静默模式下窗口会被挪出可视区，不加这两个参数 Chrome 会降频渲染，导致抓取结果变少。
 "$CHROME_BIN" \
   --remote-debugging-port=9222 \
   --remote-allow-origins=* \
   --proxy-bypass-list="127.0.0.1;localhost" \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
   --user-data-dir="$PROFILE" \
   "about:blank" &
 
-echo "[OK] 调试 Chrome 已后台启动。请在弹出的窗口里登录 Facebook，"
-echo "     然后运行："
-echo "       node facebook_search.js \"你的品牌名\""
+echo "[OK] 调试 Chrome 已后台启动。请在弹出的窗口里登录 Facebook"
+echo "     （顺手把 Pinterest / Instagram 也登录了，覆盖更全）。"
+echo ""
+echo "     登录完成后运行（一条命令跑完全流程）："
+echo "       node scan.js B0XXXXXXXX"
+echo ""
+echo "     运行时窗口会自动移出屏幕静默抓取，不打断你的工作；加 --show 可显示过程。"
 echo ""
 echo "      验证端口：浏览器访问  http://127.0.0.1:9222"
 echo "      （应看到一个 JSON 页面，列出当前标签页）"
