@@ -1,0 +1,26 @@
+# 强制换行符，避免同事 clone 下来直接跑不起来。
+# 不写这个文件时，checkout 结果取决于每台机器的 core.autocrlf 设置：
+#   - .bat 拿到 LF  → cmd 解析 if/for 块错乱（"'al' 不是内部或外部命令"）
+#   - .sh  拿到 CRLF → Mac/Linux 报 "bash: \r: command not found"
+
+* text=auto
+
+# Windows 批处理必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell 脚本必须 LF（否则 Mac/Linux 直接跑不了）
+*.sh text eol=lf
+
+# 源码与文档统一 LF
+*.js  text eol=lf
+*.json text eol=lf
+*.md  text eol=lf
+
+# 二进制，不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
