@@ -68,3 +68,51 @@ node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
 - 登录态失效时脚本会提示检测到登录页，按上面的方式重跑 `start_chrome_debug` 并登录即可。
 - 不要对同一个账号高频自动化搜索，避免触发风控；采集完记得关掉脚本开的浏览器（脚本自启的会在结束时自动关闭）。
 - 系统开了科学上网/公司代理时，务必用 `start_chrome_debug` 启动（已加 `--proxy-bypass-list`），否则 9222 回环会被代理拦截、连不上。
+
+---
+
+## 一体化 CLI：scan.js（推荐给同事 · 纯 cmd 一条命令跑完全流程）
+
+把原本「Claude Code + 多步对话」才能完成的 7 步流程，压缩成一条命令。**同事只要装了 Node.js，无需 Claude Code、无需任何 API key**，在 cmd/终端里直接跑：
+
+```powershell
+# 最常用：只传 ASIN，脚本自动抓亚马逊标题提取精确产品词
+node scan.js B0H6Q7VFK9
+
+# 也可手动指定品牌/产品词（覆盖自动提取）
+node scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"
+
+# 跳过某些渠道（FB 实时采集需要登录态；Pinterest/Instagram 同理）
+node scan.js B0H6Q7VFK9 --skip-pinterest --skip-instagram     # 只跑 FB + Google
+node scan.js B0H6Q7VFK9 --skip-fb                            # 跳过 Facebook
+
+# 指定站点 / 只出 JSON
+node scan.js B0H6Q7VFK9 --site=amazon.co.uk
+node scan.js B0H6Q7VFK9 --no-report
+```
+
+### 它自动做什么
+1. **解析亚马逊商品页**：抓标题/品牌/价格/Coupon，作为后续查询与报告的基础；
+2. **Facebook**：作为子进程复用已验证的 `facebook_search.js`（ASIN 优先查询 + `l.php` 解码 + 展开精确匹配 + 正文保真），产出精确命中帖；
+3. **Pinterest / Instagram / Google**：用同一个调试 Chrome 走浏览器采集（无 API key），抽 href + 文本，还原 amazon 链接，识别折扣码/力度/`#AD`；
+4. **聚合**：生成 `../offsite-output/` 下的三件套——`scan_<品牌>.json`（原始聚合）、`report_<品牌>.md`（人读报告）、`findings_<品牌>.csv`（明细，带 BOM，Excel 直接打开中文不乱码）。
+
+### 前置（一次性）
+1. 安装 Node.js（LTS 版，https://nodejs.org ）；
+2. `scripts/` 目录执行 `npm install`（或 `setup.bat` / `setup.sh`）；
+3. 运行 `start_chrome_debug.bat`（Win）/ `start_chrome_debug.sh`（Mac/Linux），在弹窗 Chrome 里登录 Facebook / Pinterest / Instagram（Google 用已登录态更稳）；
+4. 另开终端执行上面的 `node scan.js <ASIN>` 即可。
+
+### 实现要点
+- **全部走浏览器**：基于 Playwright `connectOverCDP` 复用 9222 调试 Chrome 的登录态，无任何外部 API key；
+- **FB 段复用 `facebook_search.js`**：逻辑已在 FB 采集里定型（ASIN 优先、跳转解码、展开精确匹配、正文保真），scan.js 通过子进程调用并读取其 JSON，不重复造轮子；
+- **登录墙检测**：各渠道采集前检测是否跳到登录页，跳了就返回空并提示去调试 Chrome 登录后重跑；
+- **优雅退出**：连不上调试 Chrome 时打印清晰指引后 `exit(0)`，不崩溃；
+- **中文 CSV**：写文件时加 `\uFEFF` BOM，Excel 打开中文不乱码。
+
+### 输出示例（以 B0H6Q7VFK9 为例）
+- `offsite-output/scan_Boytond.json`：含 `amazon` / `facebook` / `pinterest` / `instagram` / `google` / `queries_used`；
+- `offsite-output/report_Boytond.md`：人读报告，按渠道列出含 Amazon 链接的站外痕迹与折扣情报；
+- `offsite-output/findings_Boytond.csv`：逐条明细（ASIN / 渠道 / 类型 / URL / 标题摘要 / 折扣码 / 折扣力度 / 备注）。
+
+> ⚠️ 同 `facebook_search.js`：务必传精确产品词 + 目标 ASIN，避免只传品牌召回同品牌其他型号造成 ASIN 对不上的噪音。scan.js 的 `--brand` / `--product` 即为此设计。

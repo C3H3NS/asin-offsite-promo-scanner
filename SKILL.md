@@ -80,6 +80,26 @@ node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7
 
 ---
 
+## 一体化命令行（scan.js · 一条命令跑完 7 步，无需 Claude Code）
+
+同事不想装 Claude Code、只想在 cmd 里跑？`scripts/scan.js` 把 7 步压缩成一条命令，自动完成：亚马逊解析 → Facebook（复用 `facebook_search.js`）→ Pinterest → Instagram → Google → 聚合 JSON + Markdown 报告 + CSV 明细。
+
+前置（一次性）：①装 Node.js（LTS）；②`scripts/` 下 `npm install`；③跑 `start_chrome_debug.bat`（Win）/ `start_chrome_debug.sh`（Mac/Linux）并在弹窗 Chrome 登录 Facebook / Pinterest / Instagram；④另开终端执行：
+
+```powershell
+node scripts/scan.js B0H6Q7VFK9
+node scripts/scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"
+node scripts/scan.js B0H6Q7VFK9 --skip-pinterest --skip-instagram   # 只跑 FB + Google
+node scripts/scan.js B0H6Q7VFK9 --site=amazon.co.uk                   # 英国站
+```
+
+- 全部走浏览器（Playwright 连 9222 调试 Chrome，复用登录态），**无需任何 API key**；
+- FB 段作为子进程复用已验证的 `facebook_search.js`；
+- 产物：`offsite-output/scan_<品牌>.json` / `report_<品牌>.md` / `findings_<品牌>.csv`（CSV 带 BOM，Excel 直接打开中文不乱码）；
+- 没连上调试 Chrome 时脚本打印指引后优雅退出，不崩溃。详见 `scripts/README.md` 的「一体化 CLI：scan.js」一节。
+
+---
+
 ## 执行步骤
 
 ### Step 1 解析 ASIN → 亚马逊商品信息
