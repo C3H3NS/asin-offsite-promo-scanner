@@ -34,15 +34,15 @@ bash start_chrome_debug.sh
 ### 第 2 步：跑采集脚本
 另开一个终端：
 ```powershell
-# 推荐：只传 ASIN，脚本自动抓亚马逊标题提取精确产品词（如 AI Translation Earbuds Real Time）
-node facebook_search.js "Boytond" --asin=B0H6Q7VFK9
-# 也支持手动指定产品词覆盖自动提取：
+# 推荐：只传 --asin，脚本自动抓亚马逊标题、解析品牌 + 提取精确产品词（无需手传任何词）
+node facebook_search.js --asin=B0H6Q7VFK9
+# 少数自动解析不准时，才手动覆盖品牌/产品词：
 node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
 ```
 
-> ⚠️ **务必传精确产品词和目标 ASIN**。只传品牌会从根上召回同品牌所有型号（不同 ASIN）的帖子，
-> 造成"点进去 ASIN 对不上"的噪音。脚本会对每条带 Amazon 链接的帖提取 ASIN，与 `--asin` 比对，
-> 在 JSON 里给出 `asin_match`（exact/other/unknown）与 `relevance`（高/中/低）字段。
+> ⚠️ **目标 ASIN 必传（`--asin`），品牌与精确产品词脚本会自动从亚马逊商品页解析**（v4.5 起不再硬编码默认品牌）。
+> 只传品牌会召回同品牌所有型号（不同 ASIN）的帖子，造成"点进去 ASIN 对不上"的噪音——而自动解析正是为了拿到精确产品词。
+> 脚本会对每条带 Amazon 链接的帖提取 ASIN，与 `--asin` 比对，在 JSON 里给出 `asin_match`（exact/other/unknown）与 `relevance`（高/中/低）字段。
 
 脚本会自动：
 1. 先连已在 9222 的调试 Chrome（连上就复用登录态）；
@@ -76,10 +76,10 @@ node facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9
 把原本「Claude Code + 多步对话」才能完成的 7 步流程，压缩成一条命令。**同事只要装了 Node.js，无需 Claude Code、无需任何 API key**，在 cmd/终端里直接跑：
 
 ```powershell
-# 最常用：只传 ASIN，脚本自动抓亚马逊标题提取精确产品词
+# 最常用：只传 ASIN，脚本自动抓亚马逊标题、解析品牌+产品词、动态拼查询（全自动，无需手传任何词）
 node scan.js B0H6Q7VFK9
 
-# 也可手动指定品牌/产品词（覆盖自动提取）
+# 极少数自动解析不准时，才用手动覆盖（一般不用加）
 node scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"
 
 # 跳过某些渠道（FB 实时采集需要登录态；Pinterest/Instagram 同理）
@@ -160,4 +160,5 @@ asin-offsite-promo-scanner/
 - `offsite-output/report_Boytond.md`：人读报告，按渠道列出含 Amazon 链接的站外痕迹与折扣情报；
 - `offsite-output/findings_Boytond.csv`：逐条明细（ASIN / 渠道 / 类型 / URL / 标题摘要 / 折扣码 / 折扣力度 / 备注）。
 
-> ⚠️ 同 `facebook_search.js`：务必传精确产品词 + 目标 ASIN，避免只传品牌召回同品牌其他型号造成 ASIN 对不上的噪音。scan.js 的 `--brand` / `--product` 即为此设计。
+> ⚠️ `scan.js` 拿到 ASIN 后会**自动解析品牌 + 提取精确产品词**再拼查询，一般只需传 ASIN。
+> `--brand` / `--product` 仅在自动解析不准时作手动覆盖用。精确产品词能避免召回同品牌其他型号（不同 ASIN）造成 ASIN 对不上的噪音。

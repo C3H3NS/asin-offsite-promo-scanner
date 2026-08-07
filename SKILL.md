@@ -68,10 +68,10 @@ Facebook 公开搜索对匿名基本失效，必须用**你本机已登录 Chrom
 - **Windows**：运行 `scripts/start_chrome_debug.bat` → 弹窗里登录 Facebook → 保持窗口开着。
 - **Mac/Linux**：运行 `bash scripts/start_chrome_debug.sh` → 登录 Facebook → 保持窗口开着。
 
-然后跑采集（**v4.2 起只需传 `--asin`，脚本会自动抓亚马逊标题、提取精确产品词**（如 `AI Translation Earbuds Real Time`）构造查询，无需手敲产品词；手敲产品词仅作覆盖兜底）：
+然后跑采集（**v4.5 起只需传 `--asin`，脚本会自动抓亚马逊标题、解析品牌 + 提取精确产品词**（如 `AI Translation Earbuds`）构造查询，无需手传品牌/产品词；手传仅作覆盖兜底）：
 ```powershell
-node scripts/facebook_search.js "Boytond" --asin=B0H6Q7VFK9                              # 推荐：自动提取精确产品词
-node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    # 也可手动指定产品词覆盖
+node scripts/facebook_search.js --asin=B0H6Q7VFK9                                       # 推荐：全自动化，品牌+产品词自动解析
+node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7VFK9    # 仅自动解析不准时手动覆盖
 ```
 脚本三级容错：①先连已在 9222 的调试 Chrome → ②连不上则复制 profile 自启一个（已加 `--remote-allow-origins=*` 与 `--proxy-bypass-list`）→ ③仍不行就打印清晰指引后优雅退出，绝不 FATAL 崩溃。
 产物：`offsite-output/facebook_<品牌>.json` + `.png`。详见 `scripts/README.md`。
@@ -87,8 +87,8 @@ node scripts/facebook_search.js "Boytond" "AI Translation Earbuds" --asin=B0H6Q7
 前置（一次性）：①装 Node.js（LTS）；②`scripts/` 下 `npm install`；③跑 `start_chrome_debug.bat`（Win）/ `start_chrome_debug.sh`（Mac/Linux）并在弹窗 Chrome 登录 Facebook / Pinterest / Instagram；④另开终端执行：
 
 ```powershell
-node scripts/scan.js B0H6Q7VFK9
-node scripts/scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"
+node scripts/scan.js B0H6Q7VFK9                                          # 最常用：只传 ASIN，品牌+产品词全自动解析
+node scripts/scan.js B0H6Q7VFK9 --brand=Boytond --product="AI Translation Earbuds"   # 仅自动解析不准时手动覆盖
 node scripts/scan.js B0H6Q7VFK9 --skip-pinterest --skip-instagram   # 只跑 FB + Google
 node scripts/scan.js B0H6Q7VFK9 --site=amazon.co.uk                   # 英国站
 node scripts/scan.js B0H6Q7VFK9 --out=D:\站外报告                     # 自定义输出目录

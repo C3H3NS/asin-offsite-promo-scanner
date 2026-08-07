@@ -48,7 +48,9 @@ const os = require('os');
 // ── 入参 ──
 // 位置参数（过滤掉 -- 开头的 flag）：argv[2]=品牌, argv[3]=可选精确产品词
 const positionalArgs = process.argv.slice(2).filter(a => !a.startsWith('--'));
-const BRAND = positionalArgs[0] || 'Boytond';
+// 品牌可不传：有 --asin 时会从亚马逊商品页自动解析（见 scan()）。
+// 【不再硬编码默认品牌】—— 之前默认 'Boytond' 会让别人不传参时莫名其妙去搜别的品牌。
+let BRAND = positionalArgs[0] || '';
 // 第 2 个位置参数 = 精确产品词（如 "AI Translation Earbuds"），不传则留空，由 ASIN 自动提取兜底
 const CATEGORY = positionalArgs[1] || '';
 const FORCE_REFRESH = process.argv.includes('--refresh');
@@ -72,7 +74,16 @@ const DEBUG_PORT = process.env.CHROME_DEBUG_PORT || '9222';
 const OUT_DIR = process.env.FBSCAN_OUT_DIR
   ? path.resolve(process.env.FBSCAN_OUT_DIR)
   : path.resolve(__dirname, '..', 'offsite-output');
-const safe = BRAND.replace(/[^a-z0-9]+/gi, '_').slice(0, 60);
+// 品牌可能待自动解析，文件名先用 ASIN 兜底，解析出品牌后由 setSafeName() 更新。
+// 被 scan.js 作为子进程调用时，父进程用 FBSCAN_SAFE_NAME 锁定文件名以保证两边一致。
+const SAFE_NAME_LOCK = process.env.FBSCAN_SAFE_NAME || '';
+let safe = SAFE_NAME_LOCK
+  || (BRAND || TARGET_ASIN || 'scan').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+function setSafeName(brand) {
+  if (SAFE_NAME_LOCK) return;   // 父进程已锁定，不覆盖
+  const s = (brand || TARGET_ASIN || 'scan').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  safe = s || 'scan';
+}
 
 // ── 静默模式：把调试 Chrome 窗口挪出可视区，避免抓取时弹到最前面干扰工作 ──
 // 由 scan.js 通过环境变量 FBSCAN_QUIET=1 打开；单独运行本脚本时加 --quiet 亦可。
@@ -90,35 +101,33 @@ async function hideWindow(page) {
 }
 
 // 产品词拆 token（用于相关性判断；运行时根据最终产品词填充，见 scan()）
-const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'your', 'this', 'that', 'earbuds', 'headphones', 'wireless', 'bluetooth']);
+// 仅通用虚词。v4.5 移除了 earbuds/headphones/wireless/bluetooth ——
+// 那是耳机品类专用词，硬编码在这里会让其他品类的 token 过滤行为不一致。
+const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'your', 'this', 'that', 'from', 'into', 'over']);
 let PRODUCT_TOKENS = [];
 
 // ── 多查询变体生成（v4.3：动态多粒度，修复“Real Time 强制拼接导致召回丢失”） ──
 // 复盘：v4.2 把每个查询都拼上完整提取词（如 "AI Translation Earbuds Real Time"），
 // 但真实站外帖子常只写 "Boytond AI Translation Earbuds"（不带 Real Time），
 // Facebook 关键词匹配搜不到 → 漏掉 ASIN 完全匹配的优质帖。
-// 修复：同一产品构造「完整词 / 核心词(去尾部描述符) / 品类概念词」三档粒度，
-//       分别带折扣/券意图后缀，最大化召回；精度由 ASIN 校验兜底。
-function deriveCoreKeyword(fullKw) {
-  if (!fullKw) return '';
-  // 1) 去掉尾部描述符：real time / real-time / pro / plus / mini / max / 年份
-  let core = fullKw.replace(/\b(real[\s-]?time|realtime|pro|plus|mini|max|20\d{2})\b.*$/i, '').trim();
-  // 2) 若仍偏长（>=4 词），再去掉最后一个修饰词，进一步放宽召回
-  const words = core.split(/\s+/).filter(Boolean);
-  if (words.length >= 4) core = words.slice(0, words.length - 1).join(' ').trim();
-  return core && core !== fullKw ? core : fullKw;
-}
+// 修复：同一产品构造「完整词 / 核心词」多档粒度，最大化召回；精度由 ASIN 校验兜底。
+// v4.5：删除了 deriveCoreKeyword() —— 它是死代码（定义后从未调用），且硬编码了
+//       real time/pro/plus 等耳机场景描述符。核心词现由 extractProductPhrases() 通用产出。
 
-function buildQueries(brand, productKeyword, targetAsin) {
-  // v4.4：按用户建议精简查询，避免 FB 限流；核心三查询覆盖 品牌 / 产品词 / 品牌+产品词
-  // v4.4.1：当指定目标 ASIN 时，把「ASIN 本身」作为【最高优先级】查询前置——
-  //   实测发现 FB 搜索对品牌/产品词会返回同品牌其他型号或竞品，但不一定召回「本 ASIN 的推广帖」；
-  //   而直接搜 ASIN（debug_asin 已验证）FB 会精准返回含该 ASIN 的帖子，是精确命中的最可靠信号。
+function buildQueries(brand, productKeyword, targetAsin, productCore) {
+  // v4.4：精简查询避免 FB 限流；覆盖 品牌 / 产品词 / 品牌+产品词
+  // v4.4.1：指定目标 ASIN 时把「ASIN 本身」作为【最高优先级】查询前置——
+  //   实测 FB 对品牌/产品词会返回同品牌其他型号或竞品，不一定召回「本 ASIN 的推广帖」；
+  //   而直接搜 ASIN，FB 会精准返回含该 ASIN 的帖子，是精确命中的最可靠信号。
   const queries = [];
   if (targetAsin) queries.push(targetAsin);
   if (brand) queries.push(brand);
   if (productKeyword) queries.push(productKeyword);
   if (brand && productKeyword) queries.push(`${brand} ${productKeyword}`.trim());
+  // 核心词档：产品词偏长时用尾部品类短语放宽召回
+  if (productCore && productCore.toLowerCase() !== String(productKeyword || '').toLowerCase() && brand) {
+    queries.push(`${brand} ${productCore}`.trim());
+  }
   return [...new Set(queries.filter(Boolean))];
 }
 // ── 从文本中提取 Amazon 链接里的 ASIN ──
@@ -463,26 +472,44 @@ async function scan(browser, launchedByScript) {
     console.log('[!] 首页预热失败(继续尝试搜索):', e.message.split('\n')[0]);
   }
 
-  // v4.3：若提供了 ASIN，自动抓亚马逊标题提取精确产品词（含 Real Time 等），优先于手敲词
+  // v4.5：若提供了 ASIN，自动从亚马逊商品页解析【品牌 + 产品词】，无需手动传参
   let productKeyword = CATEGORY || '';
+  let productCore = '';
   if (TARGET_ASIN) {
     try {
-      const title = await fetchAmazonTitle(browser, TARGET_ASIN);
-      const kw = extractProductKeyword(title, BRAND);
-      if (kw) {
-        productKeyword = kw;
-        console.log('[✓] 从亚马逊标题自动提取精确产品词: "' + kw + '"');
-      } else {
-        console.log('[!] 未从标题提取出产品词，降级为品类概念词（如 Boytond translation earbuds）');
+      const { title, brand: autoBrand } = await fetchAmazonTitle(browser, TARGET_ASIN);
+      if (!BRAND && autoBrand) {
+        BRAND = autoBrand;
+        setSafeName(BRAND);
+        console.log('[✓] 自动解析品牌: "' + BRAND + '"');
+      } else if (!BRAND && title) {
+        BRAND = title.trim().split(/\s+/)[0];
+        setSafeName(BRAND);
+        console.log('[✓] 自动解析品牌(标题首词兜底): "' + BRAND + '"');
+      }
+      if (!CATEGORY) {
+        const ph = extractProductPhrases(title, BRAND);
+        if (ph.full) {
+          productKeyword = ph.full;
+          productCore = ph.core !== ph.full ? ph.core : '';
+          console.log('[✓] 自动提取产品词: "' + ph.full + '"' + (productCore ? '  核心词: "' + productCore + '"' : ''));
+        } else {
+          console.log('[!] 未从标题提取出产品词，降级为品牌泛搜');
+        }
       }
     } catch (e) {
-      console.log('[!] 抓亚马逊标题失败，降级为品类概念词兜底: ' + e.message.split('\n')[0]);
+      console.log('[!] 抓亚马逊商品页失败，降级为品牌泛搜: ' + e.message.split('\n')[0]);
     }
+  }
+  if (!BRAND && !productKeyword && !TARGET_ASIN) {
+    console.log('\n[x] 需要至少提供一个：ASIN（--asin=B0XXXXXXXX，推荐）或品牌名。');
+    console.log('    示例: node facebook_search.js --asin=B0H6Q7VFK9\n');
+    process.exit(1);
   }
   // 填充相关性判断用的 token（基于最终产品词）
   PRODUCT_TOKENS = productKeyword.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
 
-  const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN);
+  const queries = buildQueries(BRAND, productKeyword, TARGET_ASIN, productCore);
   // 预热后额外冷却，降低“刚预热完立刻搜 ASIN”被 FB 瞬时风控断连的概率
   await sleep(8000);
   console.log(`\n${'═'.repeat(50)}`);
@@ -581,6 +608,7 @@ async function scan(browser, launchedByScript) {
 }
 
 // ── v4.3：自动从亚马逊标题提取精确产品词 ──
+// 返回 { title, brand }：品牌优先取 byline（"Visit the XXX Store"），兜底标题首词
 async function fetchAmazonTitle(browser, asin) {
   const ctx = browser.contexts()[0] || await browser.newContext();
   const p = await ctx.newPage();
@@ -590,28 +618,91 @@ async function fetchAmazonTitle(browser, asin) {
     await p.waitForSelector('#productTitle', { timeout: 10000 }).catch(() => {});
     const title = await p.$eval('#productTitle', el => el.innerText).catch(() => null)
                || await p.title().catch(() => null);
-    return title ? title.trim() : null;
+    const byline = await p.$eval('#bylineInfo', el => el.innerText).catch(() => '');
+    const brand = (byline || '')
+      .replace(/^Visit the\s+/i, '')
+      .replace(/^Brand:\s*/i, '')
+      .replace(/\s+Store$/i, '')
+      .trim();
+    return { title: title ? title.trim() : null, brand: brand || null };
   } finally {
     await p.close().catch(() => {});
   }
 }
 
-// 从标题提取核心产品短语：去品牌、去规格数字、去同义噪声，保留如 "AI Translation Earbuds Real Time"
-function extractProductKeyword(title, brand) {
-  if (!title) return '';
-  let t = title;
-  if (brand && t.toLowerCase().startsWith(brand.toLowerCase())) t = t.slice(brand.length).trim();
-  const words = t.split(/\s+/).map(w => w.replace(/[^\w\s]/g, '').trim()).filter(Boolean);
-  const idx = words.findIndex(w => /translat/i.test(w) || /earbud/i.test(w));
-  if (idx === -1) return '';
-  let start = idx;
-  for (let i = Math.max(0, idx - 3); i <= idx; i++) {
-    if (/^ai$/i.test(words[i])) { start = i; break; }
+// ── 从标题提取核心产品短语（通用算法，与 scan.js 同源） ──
+// v4.5：旧版硬编码 /translat|earbud/ 品类词，换品类必然返回空串 → 产品词丢失、
+//       查询降级为纯品牌泛搜。现改为结构化解析，【不含任何品类白名单】。
+// 依据：亚马逊标题格式固定为「品牌 + 型号/修饰 + 品类名, 卖点1, 卖点2...」
+const CONNECTORS = new Set(['and', '&', 'with', 'for', 'of', 'in', 'to']);
+const NOISE_WORDS = new Set([
+  'the', 'your', 'this', 'that', 'new', 'pack', 'set', 'pcs', 'pieces', 'count',
+  'upgraded', 'upgrade', 'premium', 'professional', 'portable', 'compact', 'universal', 'multifunctional',
+  'best', 'top', 'ultra', 'super', 'advanced', 'smart', 'latest', 'version', 'edition', 'generation',
+  'gift', 'gifts', 'men', 'women', 'kids', 'adults', 'home', 'office', 'travel', 'outdoor', 'indoor',
+  'black', 'white', 'blue', 'red', 'green', 'pink', 'grey', 'gray', 'silver', 'gold', 'beige',
+  'inch', 'inches', 'ft', 'cm', 'mm', 'qt', 'oz', 'lb', 'lbs', 'ml', 'gb', 'tb',
+  'pro', 'plus', 'max', 'mini', 'lite',
+]);
+
+function isSpecToken(w) {
+  const s = w.toLowerCase();
+  if (/^\d+$/.test(s)) return true;
+  if (/^\d+(\.\d+)?(qt|oz|ml|l|g|kg|lb|lbs|mm|cm|in|inch|ft|w|v|mah|hz|khz|gb|tb|k|p)$/.test(s)) return true;
+  if (/^\d+(-|\s)?in(-|\s)?\d+$/.test(s)) return true;
+  if (/^[a-z]{1,3}\d{1,4}[a-z+]?$/.test(s) && s.length <= 5) return true; // Q30 / X8 / S30i / A9+（带 + 型号后缀）
+  if (/^\d{1,2}[a-z]{1,2}$/.test(s)) return true;
+  if (/^20\d{2}$/.test(s)) return true;
+  return false;
+}
+
+function stripBrandPrefix(title, brand) {
+  if (!brand) return title;
+  const b = brand.trim();
+  const t = title.trim();
+  if (t.toLowerCase().startsWith(b.toLowerCase())) {
+    return t.slice(b.length).trim().replace(/^[-–—,:|]+/, '').trim();
   }
-  let end = idx;
-  const ebIdx = words.findIndex((w, i) => i >= idx && /earbud/i.test(w));
-  if (ebIdx >= 0) end = ebIdx;
-  return words.slice(start, end + 1).join(' ').trim();
+  const re = new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+  return t.replace(re, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// 返回 { full, core }：full=清洗后完整品类短语，core=核心词（用于放宽召回）
+// 关键分支：亚马逊标题两种写法，品类名位置相反 ——
+//   a) 规范型「品牌 品类名, 卖点...」（含逗号）→ 第一段短，品类在【尾部】
+//   b) 堆砌型「品牌 品类名 卖点1 卖点2 ...」（无逗号、关键词堆满）→ 品类紧跟品牌在【头部】
+// 用第一段实词数量区分：>LONG 判为堆砌型取头部，否则取尾部（尾部=更通用的品类词，利于放宽召回）。
+function extractProductPhrases(title, brand, maxCore = 3) {
+  if (!title) return { full: '', core: '' };
+  let t = stripBrandPrefix(title, brand);
+  t = t.split(/[,，(（[【|｜;；]|\s[-–—]\s/)[0].trim();
+  t = t.split(/\s+(?:with|for|w\/)\s+/i)[0].trim();
+  const words = t.split(/\s+/).map(w => w.replace(/[^\w&+/-]/g, '').trim()).filter(Boolean);
+  let kept = words.filter(w => {
+    const s = w.toLowerCase();
+    if (CONNECTORS.has(s)) return true;
+    return !isSpecToken(w) && !NOISE_WORDS.has(s) && w.length > 1;
+  });
+  while (kept.length && CONNECTORS.has(kept[0].toLowerCase())) kept.shift();
+  while (kept.length && CONNECTORS.has(kept[kept.length - 1].toLowerCase())) kept.pop();
+  if (!kept.length) return { full: '', core: '' };
+
+  const LONG = 6;
+  let fullArr, coreArr;
+  if (kept.length > LONG) {            // 堆砌型：只取头部，避免把几十个关键词噪音当产品名
+    fullArr = kept.slice(0, maxCore);
+    coreArr = fullArr;
+  } else {                             // 规范型：保留完整短语，核心取尾部通用品类词
+    fullArr = kept;
+    coreArr = kept.length <= 4 ? kept : kept.slice(kept.length - maxCore);
+  }
+  while (coreArr.length && CONNECTORS.has(coreArr[0].toLowerCase())) coreArr = coreArr.slice(1);
+  while (fullArr.length && CONNECTORS.has(fullArr[fullArr.length - 1].toLowerCase())) fullArr = fullArr.slice(0, -1);
+  return { full: fullArr.join(' '), core: coreArr.join(' ') };
+}
+
+function extractProductKeyword(title, brand) {
+  return extractProductPhrases(title, brand).full;
 }
 
 // ── 入口：三级容错 ──
